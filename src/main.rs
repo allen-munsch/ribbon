@@ -570,7 +570,8 @@ struct InitArgs {
 }
 
 fn parse_git_root(s: &str) -> Result<(String, PathBuf), String> {
-    let (agent, path) = s.split_once('=')
+    let (agent, path) = s
+        .split_once('=')
         .ok_or_else(|| format!("expected AGENT=PATH, got '{s}'. Example: --git-root myagent=."))?;
     Ok((agent.to_string(), PathBuf::from(path)))
 }
@@ -597,7 +598,10 @@ fn cmd_init(args: InitArgs) -> Result<()> {
 
     eprintln!("Initialized belt in .belt/");
     eprintln!("  Config: {}", config_path.display());
-    eprintln!("  Log:    {} (will be created on first 'belt send')", config.log_path.display());
+    eprintln!(
+        "  Log:    {} (will be created on first 'belt send')",
+        config.log_path.display()
+    );
     if !args.git_roots.is_empty() {
         eprintln!("  Git roots configured:");
         for (agent, path) in &args.git_roots {
