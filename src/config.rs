@@ -1,9 +1,9 @@
 //! Belt configuration — file paths, git roots, A2A endpoints.
 //!
 //! Configuration is read from (in order of precedence):
-//! 1. Command-line flags
-//! 2. Environment variables (BELT_*)
-//! 3. `.belt/config.toml` in the current directory or ancestor
+//! 1. Command-line flags (--config, --log, --project-root)
+//! 2. Environment variables (BELT_CONFIG, BELT_LOG_PATH, BELT_PROJECT_ROOT)
+//! 3. `.belt/config.toml` — searched upward from cwd (or --project-root)
 //! 4. Built-in defaults
 
 use serde::{Deserialize, Serialize};
@@ -73,17 +73,45 @@ impl Default for BeltConfig {
     }
 }
 
+/// Result of config discovery — includes the config file's directory
+/// for resolving relative paths (like log_path) correctly.
+#[derive(Debug, Clone)]
+pub struct DiscoveredConfig {
+    pub config: BeltConfig,
+    /// Directory containing the config file. Used to resolve relative log_path.
+    pub config_dir: Option<PathBuf>,
+}
+
+impl DiscoveredConfig {
+    /// Resolve the log path relative to the config file's directory.
+    /// If config_dir is None (no config file found, using defaults),
+    /// falls back to the current directory.
+    pub fn resolve_log_path(&self) -> PathBuf {
+        if self.config.log_path.is_absolute() {
+            return self.config.log_path.clone();
+        }
+
+        match &self.config_dir {
+            Some(dir) => dir.join(&self.config.log_path),
+            None => {
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                cwd.join(&self.config.log_path)
+            }
+        }
+    }
+}
+
 impl BeltConfig {
     /// Search for and load configuration from `.belt/config.toml`.
     ///
-    /// Searches upward from the current directory to the filesystem root.
-    /// Returns default config if no config file is found.
-    pub fn discover() -> Result<Self, ConfigError> {
-        let config_path = find_config_file()?;
+    /// Searches upward from `search_root` (or cwd if None) to the filesystem root.
+    /// Returns the config AND the directory containing the config file.
+    pub fn discover_from(search_root: Option<&Path>) -> Result<DiscoveredConfig, ConfigError> {
+        let config_path = find_config_file_from(search_root)?;
 
         match config_path {
-            Some(path) => {
-                let content = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io {
+            Some(ref path) => {
+                let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Io {
                     path: path.clone(),
                     source: e,
                 })?;
@@ -92,41 +120,44 @@ impl BeltConfig {
                         path: path.clone(),
                         source: e,
                     })?;
-                Ok(config)
+                // config_dir = project root (parent of .belt/)
+                let config_dir = path
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_path_buf());
+                Ok(DiscoveredConfig { config, config_dir })
             }
-            None => Ok(BeltConfig::default()),
+            None => Ok(DiscoveredConfig {
+                config: BeltConfig::default(),
+                config_dir: None,
+            }),
         }
     }
 
-    /// Load config from a specific path.
-    pub fn from_file(path: &Path) -> Result<Self, ConfigError> {
+    /// Search upward from the current directory.
+    pub fn discover() -> Result<DiscoveredConfig, ConfigError> {
+        Self::discover_from(None)
+    }
+
+    /// Load config from a specific path. Returns config_dir = parent of path.
+    pub fn from_file(path: &Path) -> Result<DiscoveredConfig, ConfigError> {
         let content = std::fs::read_to_string(path).map_err(|e| ConfigError::Io {
             path: path.to_path_buf(),
             source: e,
         })?;
-        toml::from_str(&content).map_err(|e| ConfigError::Parse {
+        let config: BeltConfig = toml::from_str(&content).map_err(|e| ConfigError::Parse {
             path: path.to_path_buf(),
             source: e,
-        })
+        })?;
+        // config_dir = project root (parent of .belt/)
+        let config_dir = path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+        Ok(DiscoveredConfig { config, config_dir })
     }
 
-    /// Resolve log_path relative to the config file's directory.
-    pub fn resolve_log_path(&self, config_dir: Option<&Path>) -> PathBuf {
-        if self.log_path.is_absolute() {
-            return self.log_path.clone();
-        }
-
-        match config_dir {
-            Some(dir) => dir.join(&self.log_path),
-            None => {
-                // Try relative to current directory
-                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                cwd.join(&self.log_path)
-            }
-        }
-    }
-
-    /// Override with a specific log path from CLI.
+    /// Override with a specific log path.
     pub fn with_log_path(mut self, path: PathBuf) -> Self {
         self.log_path = path;
         self
@@ -149,10 +180,18 @@ pub enum ConfigError {
     },
 }
 
-/// Search for `.belt/config.toml` starting from cwd upward.
-fn find_config_file() -> Result<Option<PathBuf>, ConfigError> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut current = Some(cwd.as_path());
+/// Search for `.belt/config.toml` starting from `search_root` (or cwd) upward.
+fn find_config_file_from(search_root: Option<&Path>) -> Result<Option<PathBuf>, ConfigError> {
+    let start = match search_root {
+        Some(p) if p.is_absolute() => p.to_path_buf(),
+        Some(p) => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            cwd.join(p)
+        }
+        None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    };
+
+    let mut current = Some(start.as_path());
 
     while let Some(dir) = current {
         let candidate = dir.join(".belt").join("config.toml");
@@ -175,5 +214,17 @@ mod tests {
         assert_eq!(config.log_path, PathBuf::from("events.ndjson"));
         assert_eq!(config.git_remote, "origin");
         assert_eq!(config.git_branch, "main");
+    }
+
+    #[test]
+    fn test_discovered_config_resolve_log_path() {
+        let config = BeltConfig::default();
+        let dc = DiscoveredConfig {
+            config,
+            config_dir: Some(PathBuf::from("/home/user/project")),
+        };
+        // log_path is relative, should resolve against project root
+        let resolved = dc.resolve_log_path();
+        assert_eq!(resolved, PathBuf::from("/home/user/project/events.ndjson"));
     }
 }

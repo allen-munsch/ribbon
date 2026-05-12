@@ -62,7 +62,7 @@ pub mod store;
 pub mod verify;
 
 // Re-exports for convenience
-pub use config::BeltConfig;
+pub use config::{BeltConfig, DiscoveredConfig};
 pub use event::{BeltEvent, EventType};
 pub use render::{render, RenderFormat, RenderOpts};
 pub use store::{agent_statuses, append_event, read_events, EventFilter, StoreError};

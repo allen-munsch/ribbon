@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use belt::{
     agent_statuses, append_event, read_events, render, verify_events, verify_report, BeltConfig,
-    BeltEvent, EventFilter, EventType, GitRoots, RenderFormat, RenderOpts,
+    BeltEvent, DiscoveredConfig, EventFilter, EventType, GitRoots, RenderFormat, RenderOpts,
 };
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
@@ -37,6 +37,16 @@ struct Cli {
     /// Path to belt config file
     #[arg(short = 'c', long, env = "BELT_CONFIG", global = true)]
     config: Option<PathBuf>,
+
+    /// Project root directory — where to search for .belt/config.toml
+    /// Default: walks up from current directory
+    #[arg(
+        short = 'r',
+        long = "project-root",
+        env = "BELT_PROJECT_ROOT",
+        global = true
+    )]
+    project_root: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -625,19 +635,17 @@ fn cmd_init(args: InitArgs) -> Result<()> {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Load config
-    let config = match cli.config {
+    // Load config — searching from project_root or cwd
+    let discovered: DiscoveredConfig = match cli.config {
         Some(ref path) => BeltConfig::from_file(path)?,
-        None => BeltConfig::discover()?,
+        None => BeltConfig::discover_from(cli.project_root.as_deref())?,
     };
+    let config = &discovered.config;
 
-    // Determine log path
+    // Determine log path — resolved relative to config file location
     let log_path = match cli.log {
         Some(ref path) => path.clone(),
-        None => {
-            let config_dir = cli.config.as_ref().and_then(|p| p.parent());
-            config.resolve_log_path(config_dir)
-        }
+        None => discovered.resolve_log_path(),
     };
 
     match cli.command {
@@ -647,7 +655,7 @@ fn main() -> Result<()> {
         Commands::Query(args) => cmd_query(args, &log_path)?,
         Commands::Render(args) => cmd_render(args, &log_path)?,
         Commands::Watch(args) => cmd_watch(args, &log_path)?,
-        Commands::Verify(args) => cmd_verify(args, &log_path, &config)?,
+        Commands::Verify(args) => cmd_verify(args, &log_path, config)?,
         Commands::Pack(args) => pack_handler(args, &log_path)?,
         Commands::Unpack(args) => unpack_handler(args, &log_path)?,
     }

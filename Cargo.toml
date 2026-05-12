@@ -1,6 +1,6 @@
 [package]
 name = "belt"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.91"
 description = "Agent communication belt — structured ndjson event log with A2A bridging, markdown reification, and git verification. File-first, schema-validated, human+machine readable."
