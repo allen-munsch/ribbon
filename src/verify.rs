@@ -248,6 +248,30 @@ pub fn verify_report(results: &[VerifyResult]) -> String {
         out.push('\n');
     }
 
+    // Actionable hints
+    if failed > 0 {
+        let needs_config: Vec<_> = results
+            .iter()
+            .filter(|r| !r.on_origin && r.error.as_ref().is_some_and(|e| e.contains("No git root")))
+            .map(|r| &r.agent)
+            .collect();
+
+        if !needs_config.is_empty() {
+            out.push_str("## 🔧 How to fix\n\n");
+            out.push_str("Add git roots to .belt/config.toml:\n\n```toml\n[git_roots]\n");
+            for agent in &needs_config {
+                out.push_str(&format!("{agent} = \"path/to/{agent}/repo\"\n"));
+            }
+            out.push_str("```\n\n");
+            out.push_str("Or re-initialize with:\n\n```bash\n");
+            let init_args: Vec<String> = needs_config
+                .iter()
+                .map(|a| format!("--git-root {a}=."))
+                .collect();
+            out.push_str(&format!("belt init {}\n```\n\n", init_args.join(" ")));
+        }
+    }
+
     out
 }
 

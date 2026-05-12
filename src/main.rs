@@ -11,9 +11,24 @@ use std::path::PathBuf;
 /// Belt — agent communication via structured ndjson event log.
 ///
 /// A file-first, git-versioned protocol for coordinating asynchronous agents.
-/// Compact ndjson for machines, rich markdown for humans. Optional A2A bridging.
+/// Compact ndjson for machines, rich markdown for humans.
+///
+/// # Quick Start
+///
+///   belt init --git-root myagent=.
+///   belt send working --agent myagent --task "add feature"
+///   belt send completed --agent myagent --task "add feature" --commit abc123
+///   belt status
+///   belt verify
+///
+/// # How it works
+///
+///   Agents append structured events to an ndjson log (events.ndjson).
+///   Belt queries, renders, and verifies those events.
+///   The log is git-versioned — every event is auditable.
+///   Configure git roots in .belt/config.toml to enable 'belt verify'.
 #[derive(Parser)]
-#[command(name = "belt", version, about, long_about = None)]
+#[command(name = "belt", version, about, long_about = None, after_help = "Docs: https://github.com/allen-munsch/belt")]
 struct Cli {
     /// Path to the ndjson event log (overrides config)
     #[arg(short = 'L', long, env = "BELT_LOG_PATH", global = true)]
@@ -30,7 +45,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize belt in the current directory
-    Init,
+    #[command(
+        long_about = "Initialize belt in the current directory.\n\nCreates .belt/config.toml with default settings.\nUse --git-root to pre-configure git verification paths so\n'belt verify' works immediately.\n\nExamples:\n  belt init\n  belt init --git-root frontend=.\n  belt init --git-root backend=../services/api --git-root infra=."
+    )]
+    Init(InitArgs),
 
     /// Send (append) an event to the log
     Send(SendArgs),
@@ -48,6 +66,9 @@ enum Commands {
     Watch(WatchArgs),
 
     /// Verify commit hashes against git origins
+    #[command(
+        long_about = "Verify that commit hashes in the event log exist on git origins.\n\nChecks every 'committed' and 'completed' event against the\nconfigured git remotes. Prevents agents from claiming work\nthat was never pushed.\n\nPREREQUISITES:\n  .belt/config.toml must have [git_roots] mapping agent names\n  to git repository paths. Create one with 'belt init', then\n  edit the file, or use 'belt init --git-root agent=path'.\n\nExit code: 0 if all commits verified, 1 if any are missing.\n\nExamples:\n  belt verify                  # Verify all agents\n  belt verify --agent mosaic   # Verify only one agent\n  belt verify --json           # Machine-readable output"
+    )]
     Verify(VerifyArgs),
 
     /// Pack the event log (Brotli compress)
@@ -540,7 +561,21 @@ fn format_bytes(bytes: usize) -> String {
 
 // ── init ──────────────────────────────────────────────────────────────
 
-fn cmd_init() -> Result<()> {
+#[derive(Parser)]
+struct InitArgs {
+    /// Pre-configure git roots for verification: agent=path
+    /// Repeatable. Example: --git-root frontend=. --git-root backend=../api
+    #[arg(long = "git-root", value_name = "AGENT=PATH", value_parser = parse_git_root)]
+    git_roots: Vec<(String, PathBuf)>,
+}
+
+fn parse_git_root(s: &str) -> Result<(String, PathBuf), String> {
+    let (agent, path) = s.split_once('=')
+        .ok_or_else(|| format!("expected AGENT=PATH, got '{s}'. Example: --git-root myagent=."))?;
+    Ok((agent.to_string(), PathBuf::from(path)))
+}
+
+fn cmd_init(args: InitArgs) -> Result<()> {
     let belt_dir = std::path::Path::new(".belt");
     if belt_dir.exists() {
         anyhow::bail!(".belt/ already exists. Remove it first to reinitialize.");
@@ -548,23 +583,35 @@ fn cmd_init() -> Result<()> {
 
     std::fs::create_dir_all(belt_dir)?;
 
-    let default_config = BeltConfig::default();
-    let toml_str = toml::to_string_pretty(&default_config)?;
+    let mut config = BeltConfig::default();
+    for (agent, path) in &args.git_roots {
+        config.git_roots.insert(agent.clone(), path.clone());
+        if !config.agents.contains(agent) {
+            config.agents.push(agent.clone());
+        }
+    }
 
+    let toml_str = toml::to_string_pretty(&config)?;
     let config_path = belt_dir.join("config.toml");
     std::fs::write(&config_path, toml_str)?;
 
     eprintln!("Initialized belt in .belt/");
     eprintln!("  Config: {}", config_path.display());
-    eprintln!(
-        "  Log:    {} (will be created on first 'belt send')",
-        default_config.log_path.display()
-    );
-    eprintln!();
-    eprintln!("Next steps:");
-    eprintln!("  1. Edit .belt/config.toml to add your agents and git roots");
-    eprintln!("  2. belt send working --agent my-agent --task 'first task'");
-    eprintln!("  3. belt status");
+    eprintln!("  Log:    {} (will be created on first 'belt send')", config.log_path.display());
+    if !args.git_roots.is_empty() {
+        eprintln!("  Git roots configured:");
+        for (agent, path) in &args.git_roots {
+            eprintln!("    {agent} -> {}", path.display());
+        }
+        eprintln!("  'belt verify' will work immediately for these agents.");
+    } else {
+        eprintln!();
+        eprintln!("Next steps:");
+        eprintln!("  1. Edit .belt/config.toml to add your agents and git roots");
+        eprintln!("     (or re-run: belt init --git-root myagent=.)");
+        eprintln!("  2. belt send working --agent my-agent --task 'first task'");
+        eprintln!("  3. belt status");
+    }
 
     Ok(())
 }
@@ -590,7 +637,7 @@ fn main() -> Result<()> {
     };
 
     match cli.command {
-        Commands::Init => cmd_init()?,
+        Commands::Init(args) => cmd_init(args)?,
         Commands::Send(args) => cmd_send(args, &log_path)?,
         Commands::Status(args) => cmd_status(args, &log_path)?,
         Commands::Query(args) => cmd_query(args, &log_path)?,
