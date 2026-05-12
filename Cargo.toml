@@ -2,6 +2,7 @@
 name = "belt"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
 description = "Agent communication belt — structured ndjson event log with A2A bridging, markdown reification, and git verification. File-first, schema-validated, human+machine readable."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/allen-munsch/belt"
