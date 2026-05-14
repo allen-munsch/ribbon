@@ -1,10 +1,10 @@
-//! Belt event store — append to ndjson log, read, and query.
+//! Ribbon event store — append to ndjson log, read, and query.
 //!
 //! The ndjson file is the source of truth. All operations are atomic at the
 //! line level (each line is a complete JSON object). Appends are O(1) via
 //! filesystem append. Reads stream line-by-line for constant memory.
 
-use crate::event::{BeltEvent, EventType};
+use crate::event::{RibbonEvent, EventType};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -29,7 +29,7 @@ pub enum StoreError {
 ///
 /// Creates the file and parent directories if they don't exist.
 /// Each event is written as one line terminated by `\n`.
-pub fn append_event(path: &Path, event: &BeltEvent) -> Result<(), StoreError> {
+pub fn append_event(path: &Path, event: &RibbonEvent) -> Result<(), StoreError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -48,7 +48,7 @@ pub fn append_event(path: &Path, event: &BeltEvent) -> Result<(), StoreError> {
 ///
 /// Invalid lines are skipped with a warning. Returns events in file order
 /// (which is chronological for an append-only log).
-pub fn read_events(path: &Path) -> Result<Vec<BeltEvent>, StoreError> {
+pub fn read_events(path: &Path) -> Result<Vec<RibbonEvent>, StoreError> {
     let file = File::open(path).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
             StoreError::NotFound(path.to_path_buf())
@@ -66,11 +66,11 @@ pub fn read_events(path: &Path) -> Result<Vec<BeltEvent>, StoreError> {
         if trimmed.is_empty() {
             continue;
         }
-        match BeltEvent::from_ndjson_line(trimmed) {
+        match RibbonEvent::from_ndjson_line(trimmed) {
             Ok(event) => events.push(event),
             Err(e) => {
                 eprintln!(
-                    "belt: warning: skipping malformed line {}: {}",
+                    "ribbon: warning: skipping malformed line {}: {}",
                     line_num + 1,
                     e
                 );
@@ -133,8 +133,8 @@ impl EventFilter {
     }
 
     /// Apply this filter to an iterator of events.
-    pub fn apply<'a>(&self, events: impl Iterator<Item = &'a BeltEvent>) -> Vec<&'a BeltEvent> {
-        let mut results: Vec<&BeltEvent> = events
+    pub fn apply<'a>(&self, events: impl Iterator<Item = &'a RibbonEvent>) -> Vec<&'a RibbonEvent> {
+        let mut results: Vec<&RibbonEvent> = events
             .filter(|e| {
                 if let Some(ref agent) = self.agent {
                     if &e.agent != agent {
@@ -201,8 +201,8 @@ pub struct AgentStatus {
 }
 
 /// Compute current status for all agents found in the event log.
-pub fn agent_statuses(events: &[BeltEvent]) -> Vec<AgentStatus> {
-    let mut by_agent: HashMap<String, Vec<&BeltEvent>> = HashMap::new();
+pub fn agent_statuses(events: &[RibbonEvent]) -> Vec<AgentStatus> {
+    let mut by_agent: HashMap<String, Vec<&RibbonEvent>> = HashMap::new();
     for e in events {
         by_agent.entry(e.agent.clone()).or_default().push(e);
     }
@@ -318,7 +318,7 @@ pub fn agent_statuses(events: &[BeltEvent]) -> Vec<AgentStatus> {
 
 /// Find the previous non-note event for a specific agent+task combination.
 /// Returns the EventType of the last state-changing event, or None if this is a new task.
-pub fn find_previous_state(events: &[BeltEvent], agent: &str, task: &str) -> Option<EventType> {
+pub fn find_previous_state(events: &[RibbonEvent], agent: &str, task: &str) -> Option<EventType> {
     // Walk backwards through events for this agent+task
     for e in events.iter().rev() {
         if e.agent == agent && e.task.as_deref() == Some(task) {
@@ -341,8 +341,8 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         let path = file.path();
 
-        let e1 = BeltEvent::new("mosaic", EventType::Working).with_task("grpc migration");
-        let e2 = BeltEvent::new("mosaic", EventType::Completed)
+        let e1 = RibbonEvent::new("mosaic", EventType::Working).with_task("grpc migration");
+        let e2 = RibbonEvent::new("mosaic", EventType::Completed)
             .with_task("grpc migration")
             .with_commit("abc123");
 
@@ -358,9 +358,9 @@ mod tests {
     #[test]
     fn test_filter_by_agent() {
         let events = [
-            BeltEvent::new("alice", EventType::Working),
-            BeltEvent::new("bob", EventType::Completed),
-            BeltEvent::new("alice", EventType::Completed),
+            RibbonEvent::new("alice", EventType::Working),
+            RibbonEvent::new("bob", EventType::Completed),
+            RibbonEvent::new("alice", EventType::Completed),
         ];
 
         let filter = EventFilter::all().agent("alice");
@@ -370,8 +370,8 @@ mod tests {
 
     #[test]
     fn test_filter_limit() {
-        let events: Vec<BeltEvent> = (0..10)
-            .map(|i| BeltEvent::new("agent", EventType::Note).with_msg(format!("msg {i}")))
+        let events: Vec<RibbonEvent> = (0..10)
+            .map(|i| RibbonEvent::new("agent", EventType::Note).with_msg(format!("msg {i}")))
             .collect();
 
         let filter = EventFilter::all().limit(3);
@@ -383,15 +383,15 @@ mod tests {
     #[test]
     fn test_agent_statuses() {
         let events = vec![
-            BeltEvent::new("mosaic", EventType::Submitted).with_task("task1"),
-            BeltEvent::new("mosaic", EventType::Working).with_task("task1"),
-            BeltEvent::new("mosaic", EventType::Committed)
+            RibbonEvent::new("mosaic", EventType::Submitted).with_task("task1"),
+            RibbonEvent::new("mosaic", EventType::Working).with_task("task1"),
+            RibbonEvent::new("mosaic", EventType::Committed)
                 .with_task("task1")
                 .with_commit("abc"),
-            BeltEvent::new("mosaic", EventType::Completed)
+            RibbonEvent::new("mosaic", EventType::Completed)
                 .with_task("task1")
                 .with_commit("abc"),
-            BeltEvent::new("zypi", EventType::Working).with_task("task2"),
+            RibbonEvent::new("zypi", EventType::Working).with_task("task2"),
         ];
 
         let statuses = agent_statuses(&events);

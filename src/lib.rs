@@ -1,4 +1,4 @@
-//! # Belt — Agent Communication Belt
+//! # Ribbon — Agent Communication Ribbon
 //!
 //! A file-first, schema-validated, human+machine readable communication
 //! protocol for coordinating asynchronous agents.
@@ -15,36 +15,36 @@
 //!
 //! ```bash
 //! # Install
-//! cargo install belt
+//! cargo install ribbon
 //!
 //! # Initialize
-//! belt init
+//! ribbon init
 //!
 //! # An agent starts a task
-//! belt send working --agent frontend --task "add dark mode"
+//! ribbon send working --agent frontend --task "add dark mode"
 //!
 //! # Complete it
-//! belt send completed --agent frontend --task "add dark mode" \
+//! ribbon send completed --agent frontend --task "add dark mode" \
 //!   --commit abc123def --tests 339 --failures 0
 //!
 //! # Check status
-//! belt status
+//! ribbon status
 //!
 //! # Render for humans
-//! belt render --since 2026-05-11
+//! ribbon render --since 2026-05-11
 //!
 //! # Verify git hashes
-//! belt verify
+//! ribbon verify
 //! ```
 //!
 //! ## Library usage
 //!
 //! ```rust,no_run
-//! use belt::{BeltEvent, EventType, append_event, read_events, render, RenderOpts};
+//! use ribbon::{RibbonEvent, EventType, append_event, read_events, render, RenderOpts};
 //! use std::path::Path;
 //!
 //! // Append
-//! let event = BeltEvent::new("my-agent", EventType::Completed)
+//! let event = RibbonEvent::new("my-agent", EventType::Completed)
 //!     .with_task("finished work")
 //!     .with_commit("abc123");
 //! append_event(Path::new("events.ndjson"), &event).unwrap();
@@ -62,8 +62,8 @@ pub mod store;
 pub mod verify;
 
 // Re-exports for convenience
-pub use config::{BeltConfig, DiscoveredConfig, ScopeConfig, ScopeEntry, WhoamiResult};
-pub use event::{state_machine, BeltEvent, EventType, StateMachine, Transition};
+pub use config::{DiscoveredConfig, RibbonConfig, ScopeConfig, ScopeEntry, WhoamiResult};
+pub use event::{state_machine, EventType, RibbonEvent, StateMachine, Transition};
 pub use render::{render, RenderFormat, RenderOpts};
 pub use store::{
     agent_statuses, append_event, find_previous_state, read_events, AgentStatus, EventFilter,

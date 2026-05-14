@@ -1,11 +1,11 @@
 [package]
-name = "belt"
-version = "0.3.0"
+name = "ribbon"
+version = "0.3.1"
 edition = "2021"
 rust-version = "1.91"
-description = "Agent communication belt — structured ndjson event log with A2A bridging, markdown reification, and git verification. File-first, schema-validated, human+machine readable."
+description = "Agent communication ribbon — structured ndjson event log with A2A bridging, markdown reification, and git verification. File-first, schema-validated, human+machine readable."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/allen-munsch/belt"
+repository = "https://github.com/allen-munsch/ribbon"
 keywords = ["agent", "a2a", "ndjson", "communication", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -40,11 +40,11 @@ watch = ["notify", "tokio/rt", "tokio/macros"]
 bridge = ["reqwest", "tokio/rt", "tokio/macros", "uuid"]
 
 [[bin]]
-name = "belt"
+name = "ribbon"
 path = "src/main.rs"
 
 [lib]
-name = "belt"
+name = "ribbon"
 path = "src/lib.rs"
 
 [dev-dependencies]

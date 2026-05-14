@@ -1,20 +1,20 @@
-//! Belt configuration — file paths, git roots, A2A endpoints, agent scopes.
+//! Ribbon configuration — file paths, git roots, A2A endpoints, agent scopes.
 //!
 //! Configuration is read from (in order of precedence):
 //! 1. Command-line flags (--config, --log, --project-root)
-//! 2. Environment variables (BELT_CONFIG, BELT_LOG_PATH, BELT_PROJECT_ROOT)
-//! 3. `.belt/config.toml` — searched upward from cwd (or --project-root)
+//! 2. Environment variables (RIBBON_CONFIG, RIBBON_LOG_PATH, RIBBON_PROJECT_ROOT)
+//! 3. `.ribbon/config.toml` — searched upward from cwd (or --project-root)
 //! 4. Built-in defaults
 //!
-//! Scope configuration is loaded from `.belt/scope.toml` alongside config.toml.
+//! Scope configuration is loaded from `.ribbon/scope.toml` alongside config.toml.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-/// Top-level belt configuration.
+/// Top-level ribbon configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BeltConfig {
+pub struct RibbonConfig {
     /// Path to the ndjson event log (relative to config file or absolute).
     #[serde(default = "default_log_path")]
     pub log_path: PathBuf,
@@ -61,9 +61,9 @@ fn default_timezone() -> String {
     "UTC".to_string()
 }
 
-impl Default for BeltConfig {
+impl Default for RibbonConfig {
     fn default() -> Self {
-        BeltConfig {
+        RibbonConfig {
             log_path: default_log_path(),
             agents: Vec::new(),
             git_roots: HashMap::new(),
@@ -79,7 +79,7 @@ impl Default for BeltConfig {
 /// for resolving relative paths (like log_path) correctly.
 #[derive(Debug, Clone)]
 pub struct DiscoveredConfig {
-    pub config: BeltConfig,
+    pub config: RibbonConfig,
     /// Directory containing the config file. Used to resolve relative log_path.
     pub config_dir: Option<PathBuf>,
 }
@@ -103,8 +103,8 @@ impl DiscoveredConfig {
     }
 }
 
-impl BeltConfig {
-    /// Search for and load configuration from `.belt/config.toml`.
+impl RibbonConfig {
+    /// Search for and load configuration from `.ribbon/config.toml`.
     ///
     /// Searches upward from `search_root` (or cwd if None) to the filesystem root.
     /// Returns the config AND the directory containing the config file.
@@ -117,12 +117,12 @@ impl BeltConfig {
                     path: path.clone(),
                     source: e,
                 })?;
-                let config: BeltConfig =
+                let config: RibbonConfig =
                     toml::from_str(&content).map_err(|e| ConfigError::Parse {
                         path: path.clone(),
                         source: e,
                     })?;
-                // config_dir = project root (parent of .belt/)
+                // config_dir = project root (parent of .ribbon/)
                 let config_dir = path
                     .parent()
                     .and_then(|p| p.parent())
@@ -130,7 +130,7 @@ impl BeltConfig {
                 Ok(DiscoveredConfig { config, config_dir })
             }
             None => Ok(DiscoveredConfig {
-                config: BeltConfig::default(),
+                config: RibbonConfig::default(),
                 config_dir: None,
             }),
         }
@@ -147,11 +147,11 @@ impl BeltConfig {
             path: path.to_path_buf(),
             source: e,
         })?;
-        let config: BeltConfig = toml::from_str(&content).map_err(|e| ConfigError::Parse {
+        let config: RibbonConfig = toml::from_str(&content).map_err(|e| ConfigError::Parse {
             path: path.to_path_buf(),
             source: e,
         })?;
-        // config_dir = project root (parent of .belt/)
+        // config_dir = project root (parent of .ribbon/)
         let config_dir = path
             .parent()
             .and_then(|p| p.parent())
@@ -182,7 +182,7 @@ pub enum ConfigError {
     },
 }
 
-/// Search for `.belt/config.toml` starting from `search_root` (or cwd) upward.
+/// Search for `.ribbon/config.toml` starting from `search_root` (or cwd) upward.
 fn find_config_file_from(search_root: Option<&Path>) -> Result<Option<PathBuf>, ConfigError> {
     let start = match search_root {
         Some(p) if p.is_absolute() => p.to_path_buf(),
@@ -196,7 +196,7 @@ fn find_config_file_from(search_root: Option<&Path>) -> Result<Option<PathBuf>, 
     let mut current = Some(start.as_path());
 
     while let Some(dir) = current {
-        let candidate = dir.join(".belt").join("config.toml");
+        let candidate = dir.join(".ribbon").join("config.toml");
         if candidate.exists() {
             return Ok(Some(candidate));
         }
@@ -208,7 +208,7 @@ fn find_config_file_from(search_root: Option<&Path>) -> Result<Option<PathBuf>, 
 
 // ── Scope configuration ───────────────────────────────────────────────
 
-/// Top-level scope configuration loaded from `.belt/scope.toml`.
+/// Top-level scope configuration loaded from `.ribbon/scope.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScopeConfig {
     /// Per-agent scope definitions.
@@ -239,7 +239,7 @@ pub struct WhoamiResult {
     pub docker_services: Vec<String>,
     /// Git root path (from config.toml), if configured.
     pub git_root: Option<PathBuf>,
-    /// Project root directory (where .belt/ lives).
+    /// Project root directory (where .ribbon/ lives).
     pub project_root: PathBuf,
     /// Relative paths to peer agents' scopes (for context).
     pub peers: Vec<(String, Vec<String>)>,
@@ -258,16 +258,16 @@ impl ScopeConfig {
         })
     }
 
-    /// Discover scope.toml by finding the project root (where .belt/ lives)
+    /// Discover scope.toml by finding the project root (where .ribbon/ lives)
     /// and loading scope.toml from there.
     pub fn discover_from(search_root: Option<&Path>) -> Result<Option<(Self, PathBuf)>, ConfigError> {
-        let belt_dir = find_belt_dir_from(search_root)?;
-        match belt_dir {
-            Some(belt_dir) => {
-                let scope_path = belt_dir.join("scope.toml");
+        let ribbon_dir = find_ribbon_dir_from(search_root)?;
+        match ribbon_dir {
+            Some(ribbon_dir) => {
+                let scope_path = ribbon_dir.join("scope.toml");
                 if scope_path.exists() {
                     let config = Self::from_file(&scope_path)?;
-                    let project_root = belt_dir.parent().map(|p| p.to_path_buf()).unwrap_or(belt_dir);
+                    let project_root = ribbon_dir.parent().map(|p| p.to_path_buf()).unwrap_or(ribbon_dir);
                     Ok(Some((config, project_root)))
                 } else {
                     // scope.toml is optional — no scope info available
@@ -285,7 +285,7 @@ impl ScopeConfig {
         &self,
         cwd: &Path,
         project_root: &Path,
-        config: &BeltConfig,
+        config: &RibbonConfig,
     ) -> Option<WhoamiResult> {
         let cwd_abs = if cwd.is_absolute() {
             cwd.to_path_buf()
@@ -374,8 +374,8 @@ impl ScopeConfig {
     }
 }
 
-/// Search for `.belt/` directory starting from `search_root` (or cwd) upward.
-fn find_belt_dir_from(search_root: Option<&Path>) -> Result<Option<PathBuf>, ConfigError> {
+/// Search for `.ribbon/` directory starting from `search_root` (or cwd) upward.
+fn find_ribbon_dir_from(search_root: Option<&Path>) -> Result<Option<PathBuf>, ConfigError> {
     let start = match search_root {
         Some(p) if p.is_absolute() => p.to_path_buf(),
         Some(p) => {
@@ -388,7 +388,7 @@ fn find_belt_dir_from(search_root: Option<&Path>) -> Result<Option<PathBuf>, Con
     let mut current = Some(start.as_path());
 
     while let Some(dir) = current {
-        let candidate = dir.join(".belt");
+        let candidate = dir.join(".ribbon");
         if candidate.is_dir() {
             return Ok(Some(candidate));
         }
@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        let config = BeltConfig::default();
+        let config = RibbonConfig::default();
         assert_eq!(config.log_path, PathBuf::from("events.ndjson"));
         assert_eq!(config.git_remote, "origin");
         assert_eq!(config.git_branch, "main");
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_discovered_config_resolve_log_path() {
-        let config = BeltConfig::default();
+        let config = RibbonConfig::default();
         let dc = DiscoveredConfig {
             config,
             config_dir: Some(PathBuf::from("/home/user/project")),
@@ -454,24 +454,25 @@ mod tests {
         ScopeConfig { agents }
     }
 
-    fn make_belt_config() -> BeltConfig {
+    fn make_ribbon_config() -> RibbonConfig {
         let mut git_roots = HashMap::new();
         git_roots.insert("mosaic".to_string(), PathBuf::from("submodules/mosaic"));
         git_roots.insert("zypi".to_string(), PathBuf::from("submodules/zypi"));
-        let mut config = BeltConfig::default();
-        config.agents = vec![
-            "mosaic".to_string(),
-            "zypi".to_string(),
-            "weft".to_string(),
-        ];
-        config.git_roots = git_roots;
-        config
+        RibbonConfig {
+            agents: vec![
+                "mosaic".to_string(),
+                "zypi".to_string(),
+                "weft".to_string(),
+            ],
+            git_roots,
+            ..RibbonConfig::default()
+        }
     }
 
     #[test]
     fn test_whoami_matches_top_level_scope() {
         let scope = make_scope_config();
-        let config = make_belt_config();
+        let config = make_ribbon_config();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // cwd is inside mosaic's scope
@@ -495,7 +496,7 @@ mod tests {
     #[test]
     fn test_whoami_matches_subdirectory() {
         let scope = make_scope_config();
-        let config = make_belt_config();
+        let config = make_ribbon_config();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // cwd inside a subdirectory of mosaic
@@ -508,7 +509,7 @@ mod tests {
     #[test]
     fn test_whoami_matches_deep_subdirectory() {
         let scope = make_scope_config();
-        let config = make_belt_config();
+        let config = make_ribbon_config();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // Deep nesting
@@ -521,7 +522,7 @@ mod tests {
     #[test]
     fn test_whoami_matches_weft_scope_multiple_paths() {
         let scope = make_scope_config();
-        let config = make_belt_config();
+        let config = make_ribbon_config();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // weft owns weft-core/**
@@ -534,7 +535,7 @@ mod tests {
     #[test]
     fn test_whoami_no_match_outside_scope() {
         let scope = make_scope_config();
-        let config = make_belt_config();
+        let config = make_ribbon_config();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // Project root itself doesn't match any scope (weft owns weft-core/**, not .)
@@ -546,7 +547,7 @@ mod tests {
     #[test]
     fn test_whoami_no_match_random_dir() {
         let scope = make_scope_config();
-        let config = make_belt_config();
+        let config = make_ribbon_config();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // Random directory
@@ -579,7 +580,7 @@ docker_services = ["test-svc"]
     #[test]
     fn test_whoami_empty_scope_config() {
         let scope = ScopeConfig::default();
-        let config = BeltConfig::default();
+        let config = RibbonConfig::default();
         let project_root = PathBuf::from("/tmp/test-project");
         let cwd = PathBuf::from("/tmp/test-project/submodules/mosaic");
         let result = scope.whoami(&cwd, &project_root, &config);
@@ -597,7 +598,7 @@ docker_services = ["test-svc"]
             },
         );
         let scope = ScopeConfig { agents };
-        let config = BeltConfig::default();
+        let config = RibbonConfig::default();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // cwd is project root — Cargo.toml is a file pattern, not a directory
@@ -611,7 +612,7 @@ docker_services = ["test-svc"]
     #[test]
     fn test_whoami_matches_weft_shared_scope() {
         let scope = make_scope_config();
-        let config = make_belt_config();
+        let config = make_ribbon_config();
         let project_root = PathBuf::from("/tmp/test-project");
 
         // weft also owns shared/**

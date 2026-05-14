@@ -1,8 +1,8 @@
-# Belt — Agent Communication Protocol
+# Ribbon — Agent Communication Protocol
 
 **File-first, schema-validated, human+machine readable communication for asynchronous agents.**
 
-Belt is a protocol and CLI tool for coordinating multiple agents (human, LLM, or service) through a shared ndjson event log. It's loosely coupled, git-versioned, and bridges to Google's [A2A protocol](https://a2a-protocol.org) for real-time streaming.
+Ribbon is a protocol and CLI tool for coordinating multiple agents (human, LLM, or service) through a shared ndjson event log. It's loosely coupled, git-versioned, and bridges to Google's [A2A protocol](https://a2a-protocol.org) for real-time streaming.
 
 ```
       ┌──────────┐                          ┌──────────┐
@@ -15,34 +15,34 @@ Belt is a protocol and CLI tool for coordinating multiple agents (human, LLM, or
               └─────────────┬───────────────┘
                             │
                     ┌───────┴───────┐
-                    │     belt      │
+                    │     ribbon     │
                     │  query|render │
                     │  verify|watch │
                     └───────────────┘
 ```
 
-## Why Belt?
+## Why Ribbon?
 
-| Problem | Belt Solution |
+| Problem | Ribbon Solution |
 |---------|---------------|
 | Agents communicate via ad-hoc markdown — fragile `grep` parsing | Structured ndjson, schema-validated |
-| Every status check costs hundreds of tokens parsing prose | `belt status` returns compact JSON |
-| No way to verify agent claims about git commits | `belt verify` checks hashes against origin |
-| Polling `git fetch` for every check | `belt watch` streams events in real time |
-| Human-readable output buried in verbose logs | `belt render` materializes compact events into rich markdown |
+| Every status check costs hundreds of tokens parsing prose | `ribbon status` returns compact JSON |
+| No way to verify agent claims about git commits | `ribbon verify` checks hashes against origin |
+| Polling `git fetch` for every check | `ribbon watch` streams events in real time |
+| Human-readable output buried in verbose logs | `ribbon render` materializes compact events into rich markdown |
 | No standard task lifecycle across teams | Submitted → Working → Committed → Completed/Failed (A2A-compatible) |
 
 ## Install
 
 ```bash
-cargo install belt
+cargo install ribbon
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/allen-munsch/belt
-cd belt
+git clone https://github.com/allen-munsch/ribbon
+cd ribbon
 cargo build --release
 ```
 
@@ -50,16 +50,16 @@ cargo build --release
 
 ```bash
 # Initialize in your project
-belt init
+ribbon init
 
 # An agent claims a task
-belt send working \
+ribbon send working \
   --agent frontend-builder \
   --task "add dark mode toggle" \
   --priority HIGH
 
 # Agent commits and completes
-belt send completed \
+ribbon send completed \
   --agent frontend-builder \
   --task "add dark mode toggle" \
   --commit 7cba506161d9388cb65394aaad7822eaad2523a3 \
@@ -67,19 +67,19 @@ belt send completed \
   --msg "All tests pass, feature ready"
 
 # Check all agents
-belt status
+ribbon status
 # AGENT              STATE        COMMIT     DONE   FAIL   ACTIVE TASK
 # frontend-builder   ✅ completed 7cba506    3      0      -
 # backend-runner     🟡 working  66faa13    5      0      API auth
 
 # Render for humans (markdown)
-belt render --since 2026-05-11
+ribbon render --since 2026-05-11
 
-# Verify git hashes (requires .belt/config.toml with git_roots)
-belt verify
+# Verify git hashes (requires .ribbon/config.toml with git_roots)
+ribbon verify
 
 # Watch for new events
-belt watch
+ribbon watch
 ```
 
 ## Event Lifecycle
@@ -103,19 +103,19 @@ Every event is one line of ndjson (newline-delimited JSON). Example:
 
 | Command | Description |
 |---------|-------------|
-| `belt init` | Create `.belt/config.toml` |
-| `belt send <EVENT> --agent <name>` | Append an event to the log |
-| `belt status [--json]` | Current state of all agents |
-| `belt query --agent X --event completed` | Filter events |
-| `belt render [--format markdown\|plain\|compact]` | Materialize as human-readable output |
-| `belt watch` | Stream new events (Ctrl+C to stop) |
-| `belt verify [--agent X]` | Check git hashes against origin |
-| `belt pack` | Brotli-compress the log for transmission |
-| `belt unpack` | Decompress a packed log |
+| `ribbon init` | Create `.ribbon/config.toml` |
+| `ribbon send <EVENT> --agent <name>` | Append an event to the log |
+| `ribbon status [--json]` | Current state of all agents |
+| `ribbon query --agent X --event completed` | Filter events |
+| `ribbon render [--format markdown\|plain\|compact]` | Materialize as human-readable output |
+| `ribbon watch` | Stream new events (Ctrl+C to stop) |
+| `ribbon verify [--agent X]` | Check git hashes against origin |
+| `ribbon pack` | Brotli-compress the log for transmission |
+| `ribbon unpack` | Decompress a packed log |
 
 ## Configuration
 
-Edit `.belt/config.toml`:
+Edit `.ribbon/config.toml`:
 
 ```toml
 # Path to the ndjson event log
@@ -140,21 +140,21 @@ git_branch = "main"
 
 ## Library Usage
 
-Belt can be used as a Rust library for embedding in other tools:
+Ribbon can be used as a Rust library for embedding in other tools:
 
 ```rust
-use belt::{BeltEvent, EventType, append_event, read_events, render, RenderOpts};
+use ribbon::{RibbonEvent, EventType, append_event, RibbonEvent, EventType, append_event, read_events, render, RenderOpts};
 use std::path::Path;
 
 // Append an event
-let event = BeltEvent::new("my-agent", EventType::Completed)
+let event = RibbonEvent::new("my-agent", EventType::Completed)
     .with_task("finished work")
     .with_commit("abc123");
 append_event(Path::new("events.ndjson"), &event)?;
 
 // Read and query
 let events = read_events(Path::new("events.ndjson"))?;
-let filter = belt::EventFilter::all()
+let filter = ribbon::EventFilter::all()
     .agent("my-agent")
     .event_type(EventType::Completed);
 let completed = filter.apply(events.iter());
@@ -166,14 +166,14 @@ println!("{markdown}");
 
 ## Reification: Compact → Rich
 
-Belt separates the **stored form** (compact ndjson) from the **presented form** (rich markdown). This is the "reification" concept — the same event data, materialized differently for different audiences.
+Ribbon separates the **stored form** (compact ndjson) from the **presented form** (rich markdown). This is the "reification" concept — the same event data, materialized differently for different audiences.
 
 **Stored (100 bytes):**
 ```json
 {"ts":"2026-05-12T04:00:00Z","agent":"builder","event":"completed","task":"dark-mode","commit":"7cba506","tests":42,"failures":0}
 ```
 
-**Rendered (markdown, `belt render`):**
+**Rendered (markdown, `ribbon render`):**
 ```markdown
 ### ✅ [2026-05-12 04:00 UTC] builder — COMPLETED
 **Task**: dark-mode
@@ -181,16 +181,16 @@ Belt separates the **stored form** (compact ndjson) from the **presented form** 
 **Tests**: 42 passed, 0 failed ✅
 ```
 
-**Rendered (compact, `belt render --format compact`):**
+**Rendered (compact, `ribbon render --format compact`):**
 ```
 ✅ [05-12 04:00] DONE builder        dark-mode @7cba506
 ```
 
 ## A2A Bridging
 
-Belt's event lifecycle maps directly to [A2A task states](https://a2a-protocol.org):
+Ribbon's event lifecycle maps directly to [A2A task states](https://a2a-protocol.org):
 
-| Belt Event | A2A TaskState |
+| Ribbon Event | A2A TaskState |
 |------------|---------------|
 | `submitted` | `Submitted` |
 | `working` | `Working` |
@@ -200,14 +200,14 @@ Belt's event lifecycle maps directly to [A2A task states](https://a2a-protocol.o
 Enable the bridge feature:
 
 ```bash
-cargo install belt --features full
+cargo install ribbon --features full
 ```
 
-Then configure `a2a_url` in `.belt/config.toml`.
+Then configure `a2a_url` in `.ribbon/config.toml`.
 
 ## Compression
 
-`belt pack` compresses the event log with Brotli:
+`ribbon pack` compresses the event log with Brotli:
 
 ```
 Packed: 2.4 KB → 0.7 KB (29% of original)
@@ -222,11 +222,11 @@ Useful for transmitting event logs between systems or archiving.
 3. **Schema-validated** — Every event has a well-defined structure.
 4. **Dual-mode** — Compact for machines, rendered rich for humans.
 5. **A2A-compatible** — Maps to standard agent protocol when you need real-time.
-6. **Zero-config start** — `belt init` + `belt send` works immediately.
+6. **Zero-config start** — `ribbon init` + `ribbon send` works immediately.
 
 ## Comparison
 
-| | Ad-hoc .md files | Git Issues | Slack Bots | Belt |
+| | Ad-hoc .md files | Git Issues | Slack Bots | Ribbon |
 |---|---|---|---|---|
 | Works offline | ✅ | ❌ | ❌ | ✅ |
 | Git-versioned | ✅ | ❌ | ❌ | ✅ |

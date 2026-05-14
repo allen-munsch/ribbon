@@ -1,10 +1,10 @@
-//! Belt verify — validate commit hashes against git origins.
+//! Ribbon verify — validate commit hashes against git origins.
 //!
 //! Ensures that OUTBOX claims (committed/completed events with commit hashes)
 //! actually exist on the remote origin. Prevents agents from claiming work
 //! that wasn't pushed.
 
-use crate::event::{BeltEvent, EventType};
+use crate::event::{RibbonEvent, EventType};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -68,11 +68,11 @@ impl GitRoots {
 /// For each event with a commit hash, checks if that commit exists on
 /// the configured remote/branch. Events from agents without a configured
 /// git root are skipped with a note.
-pub fn verify_events(events: &[BeltEvent], git_roots: &GitRoots) -> Vec<VerifyResult> {
+pub fn verify_events(events: &[RibbonEvent], git_roots: &GitRoots) -> Vec<VerifyResult> {
     let mut results = Vec::new();
 
     // Collect unique (agent, commit) pairs
-    let mut seen: HashMap<String, Vec<&BeltEvent>> = HashMap::new();
+    let mut seen: HashMap<String, Vec<&RibbonEvent>> = HashMap::new();
     for event in events {
         if let Some(ref commit) = event.commit {
             if event.event_type == EventType::Committed || event.event_type == EventType::Completed
@@ -185,7 +185,7 @@ pub fn verify_report(results: &[VerifyResult]) -> String {
         return "No commits to verify.\n".to_string();
     }
 
-    let mut out = String::from("# Belt Verification Report\n\n");
+    let mut out = String::from("# Ribbon Verification Report\n\n");
 
     // Summary
     let total = results.len();
@@ -258,7 +258,7 @@ pub fn verify_report(results: &[VerifyResult]) -> String {
 
         if !needs_config.is_empty() {
             out.push_str("## 🔧 How to fix\n\n");
-            out.push_str("Add git roots to .belt/config.toml:\n\n```toml\n[git_roots]\n");
+            out.push_str("Add git roots to .ribbon/config.toml:\n\n```toml\n[git_roots]\n");
             for agent in &needs_config {
                 out.push_str(&format!("{agent} = \"path/to/{agent}/repo\"\n"));
             }
@@ -268,7 +268,7 @@ pub fn verify_report(results: &[VerifyResult]) -> String {
                 .iter()
                 .map(|a| format!("--git-root {a}=."))
                 .collect();
-            out.push_str(&format!("belt init {}\n```\n\n", init_args.join(" ")));
+            out.push_str(&format!("ribbon init {}\n```\n\n", init_args.join(" ")));
         }
     }
 
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_verify_no_git_roots() {
-        let events = vec![BeltEvent::new("mosaic", EventType::Completed)
+        let events = vec![RibbonEvent::new("mosaic", EventType::Completed)
             .with_commit("abc123def456")
             .with_task("some task")];
 
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_verify_with_nonexistent_path() {
-        let events = vec![BeltEvent::new("mosaic", EventType::Completed)
+        let events = vec![RibbonEvent::new("mosaic", EventType::Completed)
             .with_commit("abc123def456")
             .with_task("some task")];
 
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_verify_no_commit_events() {
-        let events = vec![BeltEvent::new("mosaic", EventType::Note).with_msg("just a note")];
+        let events = vec![RibbonEvent::new("mosaic", EventType::Note).with_msg("just a note")];
 
         let git_roots = GitRoots::default();
         let results = verify_events(&events, &git_roots);

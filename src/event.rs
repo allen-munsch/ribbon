@@ -1,4 +1,4 @@
-//! Belt event types — the canonical communication schema for agent coordination.
+//! Ribbon event types — the canonical communication schema for agent coordination.
 //!
 //! # Event lifecycle (maps to A2A task states)
 //!
@@ -14,7 +14,7 @@
 //!
 //! # State Machine
 //!
-//! Belt enforces a hardcoded state machine. Each event type has valid
+//! Ribbon enforces a hardcoded state machine. Each event type has valid
 //! predecessors and successors. Invalid transitions are rejected with
 //! breadcrumb hints suggesting valid next steps.
 //!
@@ -28,9 +28,9 @@ use std::collections::HashMap;
 /// The canonical event type for agent communication.
 ///
 /// Designed to be compact yet human-readable in raw form.
-/// When compressed (belt pack), the ndjson typically shrinks 80%+ with Brotli.
+/// When compressed (ribbon pack), the ndjson typically shrinks 80%+ with Brotli.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BeltEvent {
+pub struct RibbonEvent {
     /// ISO 8601 timestamp with timezone. Always set on creation.
     pub ts: DateTime<Utc>,
 
@@ -86,7 +86,7 @@ pub enum EventType {
     /// Agent has claimed the task and started working.
     Working,
     /// Code has been committed locally but not yet verified/pushed.
-    /// Belt convention: committed → belt verify → completed.
+    /// Ribbon convention: committed → ribbon verify → completed.
     Committed,
     /// Task is complete — committed, verified, pushed, tested.
     Completed,
@@ -228,7 +228,7 @@ pub struct Transition {
     pub breadcrumb: &'static str,
 }
 
-/// The belt state machine — hardcoded valid transitions with breadcrumb hints.
+/// The ribbon state machine — hardcoded valid transitions with breadcrumb hints.
 ///
 /// Design principles:
 /// 1. Every non-note event must have a valid predecessor state.
@@ -253,7 +253,7 @@ impl StateMachine {
             None,
             Submitted,
             &["task"],
-            "Next: use `belt send working --task \"...\"` to claim this task.",
+            "Next: use `ribbon send working --task \"...\"` to claim this task.",
         );
 
         // ── From submitted ──
@@ -261,7 +261,7 @@ impl StateMachine {
             Some(Submitted),
             Working,
             &[],
-            "Next: work on the task, then `belt send committed --commit <SHA>` when code is ready.",
+            "Next: work on the task, then `ribbon send committed --commit <SHA>` when code is ready.",
         );
         sm.add(
             Some(Submitted),
@@ -275,25 +275,25 @@ impl StateMachine {
             Some(Working),
             Committed,
             &["commit"],
-            "Next: run `belt verify` to check your commit exists on origin, then `belt send completed --tests N --failures 0`.",
+            "Next: run `ribbon verify` to check your commit exists on origin, then `ribbon send completed --tests N --failures 0`.",
         );
         sm.add(
             Some(Working),
             Failed,
             &["msg"],
-            "Include --msg explaining what went wrong. Consider `belt send blocked` or `belt send confused` first if the problem might be resolvable.",
+            "Include --msg explaining what went wrong. Consider `ribbon send blocked` or `ribbon send confused` first if the problem might be resolvable.",
         );
         sm.add(
             Some(Working),
             Blocked,
             &["msg"],
-            "Describe what you're blocked on and who can unblock you. Use `belt send working` when the blocker is resolved.",
+            "Describe what you're blocked on and who can unblock you. Use `ribbon send working` when the blocker is resolved.",
         );
         sm.add(
             Some(Working),
             Confused,
             &["msg"],
-            "Ask your question clearly. A human or peer agent will respond. Use `belt send working` when you have clarity.",
+            "Ask your question clearly. A human or peer agent will respond. Use `ribbon send working` when you have clarity.",
         );
         sm.add(
             Some(Working),
@@ -313,7 +313,7 @@ impl StateMachine {
             Some(Committed),
             Completed,
             &[],
-            "Done! Run `belt status` to confirm, or `belt render` to see your project's timeline.",
+            "Done! Run `ribbon status` to confirm, or `ribbon render` to see your project's timeline.",
         );
         sm.add(
             Some(Committed),
@@ -325,7 +325,7 @@ impl StateMachine {
             Some(Committed),
             Working,
             &[],
-            "Going back to work — maybe more changes needed. Next: `belt send committed --commit <SHA>` when ready.",
+            "Going back to work — maybe more changes needed. Next: `ribbon send committed --commit <SHA>` when ready.",
         );
 
         // ── From blocked ──
@@ -403,7 +403,7 @@ impl StateMachine {
         if let Some(ps) = prev_state {
             if ps.is_terminal() {
                 return Err(format!(
-                    "Cannot transition from terminal state '{}'.\n\n  HINT: Create a new task with `belt send submitted --task \"...\"` to start fresh.\n  HINT: Use `belt status` to see all completed/failed tasks.",
+                    "Cannot transition from terminal state '{}'.\n\n  HINT: Create a new task with `ribbon send submitted --task \"...\"` to start fresh.\n  HINT: Use `ribbon status` to see all completed/failed tasks.",
                     ps.state_name()
                 ));
             }
@@ -432,12 +432,12 @@ impl StateMachine {
         if let Some(valid) = self.transitions.get(&key) {
             if valid.is_empty() {
                 hints.push_str("\n  No further transitions possible from this state.\n");
-                hints.push_str("  HINT: Create a new task with `belt send submitted --task \"...\"`.\n");
+                hints.push_str("  HINT: Create a new task with `ribbon send submitted --task \"...\"`.\n");
             } else {
                 hints.push_str("\n  Valid next steps:\n");
                 for t in valid {
                     let label = t.event.label().to_lowercase();
-                    hints.push_str(&format!("    belt send {} --task \"...\"", label));
+                    hints.push_str(&format!("    ribbon send {} --task \"...\"", label));
                     if !t.required_fields.is_empty() {
                         hints.push_str(&format!(
                             " {}",
@@ -452,7 +452,7 @@ impl StateMachine {
                 }
             }
         } else {
-            hints.push_str("\n  HINT: Check `belt status` to see your current state.\n");
+            hints.push_str("\n  HINT: Check `ribbon status` to see your current state.\n");
             hints.push_str("  HINT: Use `--force` to bypass validation if you're sure.\n");
         }
 
@@ -470,7 +470,7 @@ impl StateMachine {
         match event {
             EventType::SudoGranted => {
                 if prev_state == Some(&EventType::Sudo) {
-                    Ok("Sudo granted! You may now proceed with elevated permissions. Next: `belt send working` to resume.")
+                    Ok("Sudo granted! You may now proceed with elevated permissions. Next: `ribbon send working` to resume.")
                 } else {
                     Err(format!(
                         "`sudo_granted` requires a pending `sudo` as the previous state.\n\n  Current: {}\n  HINT: Only respond to a sudo request with `sudo_granted` or `sudo_denied`.",
@@ -480,7 +480,7 @@ impl StateMachine {
             }
             EventType::SudoDenied => {
                 if prev_state == Some(&EventType::Sudo) {
-                    Ok("Sudo denied. Consider `belt send failed` if this blocks completion, or `belt send working` for an alternative approach.")
+                    Ok("Sudo denied. Consider `ribbon send failed` if this blocks completion, or `ribbon send working` for an alternative approach.")
                 } else {
                     Err(format!(
                         "`sudo_denied` requires a pending `sudo` as the previous state.\n\n  Current: {}\n  HINT: Only respond to a sudo request with `sudo_granted` or `sudo_denied`.",
@@ -490,7 +490,7 @@ impl StateMachine {
             }
             EventType::HitlResolved => {
                 if prev_state == Some(&EventType::Hitl) {
-                    Ok("HITL resolved! Next: `belt send working` to resume.")
+                    Ok("HITL resolved! Next: `ribbon send working` to resume.")
                 } else {
                     Err(format!(
                         "`hitl_resolved` requires a pending `hitl` as the previous state.\n\n  Current: {}\n  HINT: Only resolve an active HITL request with `hitl_resolved`.",
@@ -521,10 +521,10 @@ pub fn state_machine() -> StateMachine {
     StateMachine::new()
 }
 
-impl BeltEvent {
+impl RibbonEvent {
     /// Create a new event with current timestamp.
     pub fn new(agent: impl Into<String>, event_type: EventType) -> Self {
-        BeltEvent {
+        RibbonEvent {
             ts: Utc::now(),
             agent: agent.into(),
             event_type,
@@ -599,7 +599,7 @@ mod tests {
 
     #[test]
     fn test_event_roundtrip() {
-        let event = BeltEvent::new("mosaic", EventType::Completed)
+        let event = RibbonEvent::new("mosaic", EventType::Completed)
             .with_task("gRPC migration")
             .with_commit("7cba506161d9388cb65394aaad7822eaad2523a3")
             .with_msg("All tests passing, gRPC live on :4041")
@@ -609,7 +609,7 @@ mod tests {
             .with_ext("branch", "feat/grpc");
 
         let line = event.to_ndjson_line().unwrap();
-        let parsed = BeltEvent::from_ndjson_line(&line).unwrap();
+        let parsed = RibbonEvent::from_ndjson_line(&line).unwrap();
 
         assert_eq!(parsed.agent, "mosaic");
         assert_eq!(parsed.event_type, EventType::Completed);
@@ -633,7 +633,7 @@ mod tests {
     #[test]
     fn test_minimal_event() {
         let event =
-            BeltEvent::new("human:alice", EventType::Note).with_msg("Thinking about architecture");
+            RibbonEvent::new("human:alice", EventType::Note).with_msg("Thinking about architecture");
         let line = event.to_ndjson_line().unwrap();
         assert!(line.contains("human:alice"));
         assert!(line.contains("note"));

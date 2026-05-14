@@ -1,10 +1,10 @@
-//! Belt render — materialize compact ndjson events into human-readable output.
+//! Ribbon render — materialize compact ndjson events into human-readable output.
 //!
-//! This is the "reification" half of the belt system. Agents write compact
-//! ndjson (100 bytes/event); `belt render` expands it to rich markdown for
+//! This is the "reification" half of the ribbon system. Agents write compact
+//! ndjson (100 bytes/event); `ribbon render` expands it to rich markdown for
 //! humans to read. The same events → different views depending on audience.
 
-use crate::event::{BeltEvent, EventType};
+use crate::event::{RibbonEvent, EventType};
 
 /// Output format for rendering.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,9 +44,9 @@ impl Default for RenderOpts {
 }
 
 /// Render a collection of events into a string.
-pub fn render(events: &[BeltEvent], opts: &RenderOpts) -> String {
+pub fn render(events: &[RibbonEvent], opts: &RenderOpts) -> String {
     // Filter by agent if requested
-    let filtered: Vec<&BeltEvent> = if let Some(ref agent) = opts.agent {
+    let filtered: Vec<&RibbonEvent> = if let Some(ref agent) = opts.agent {
         events.iter().filter(|e| e.agent == *agent).collect()
     } else {
         events.iter().collect()
@@ -67,12 +67,12 @@ pub fn render(events: &[BeltEvent], opts: &RenderOpts) -> String {
     }
 }
 
-fn render_markdown(events: &[&BeltEvent], opts: &RenderOpts) -> String {
+fn render_markdown(events: &[&RibbonEvent], opts: &RenderOpts) -> String {
     let mut out = String::new();
 
     if opts.group_by_agent {
         // Group by agent
-        let mut by_agent: std::collections::BTreeMap<&str, Vec<&BeltEvent>> =
+        let mut by_agent: std::collections::BTreeMap<&str, Vec<&RibbonEvent>> =
             std::collections::BTreeMap::new();
         for e in events {
             by_agent.entry(&e.agent).or_default().push(e);
@@ -90,7 +90,7 @@ fn render_markdown(events: &[&BeltEvent], opts: &RenderOpts) -> String {
     out
 }
 
-fn render_event_list_markdown(out: &mut String, events: &[&BeltEvent], opts: &RenderOpts) {
+fn render_event_list_markdown(out: &mut String, events: &[&RibbonEvent], opts: &RenderOpts) {
     for event in events {
         let emoji = if opts.emoji {
             event.event_type.emoji()
@@ -211,7 +211,7 @@ fn render_event_list_markdown(out: &mut String, events: &[&BeltEvent], opts: &Re
     }
 }
 
-fn render_plain(events: &[&BeltEvent], _opts: &RenderOpts) -> String {
+fn render_plain(events: &[&RibbonEvent], _opts: &RenderOpts) -> String {
     let mut out = String::new();
 
     for event in events {
@@ -245,7 +245,7 @@ fn render_plain(events: &[&BeltEvent], _opts: &RenderOpts) -> String {
     out
 }
 
-fn render_compact(events: &[&BeltEvent], opts: &RenderOpts) -> String {
+fn render_compact(events: &[&RibbonEvent], opts: &RenderOpts) -> String {
     let mut out = String::new();
 
     for event in events {
@@ -300,8 +300,8 @@ mod tests {
     #[test]
     fn test_render_markdown() {
         let events = vec![
-            BeltEvent::new("mosaic", EventType::Working).with_task("grpc migration"),
-            BeltEvent::new("mosaic", EventType::Completed)
+            RibbonEvent::new("mosaic", EventType::Working).with_task("grpc migration"),
+            RibbonEvent::new("mosaic", EventType::Completed)
                 .with_task("grpc migration")
                 .with_commit("7cba506161d9388cb65394aaad7822eaad2523a3")
                 .with_tests(339, 0)
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_render_compact() {
-        let events = vec![BeltEvent::new("zypi", EventType::Completed)
+        let events = vec![RibbonEvent::new("zypi", EventType::Completed)
             .with_commit("66faa13")
             .with_msg("gRPC live")];
 
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_render_empty() {
-        let events: Vec<BeltEvent> = vec![];
+        let events: Vec<RibbonEvent> = vec![];
         let opts = RenderOpts::default();
         let result = render(&events, &opts);
         assert!(result.contains("No events"));

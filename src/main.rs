@@ -1,50 +1,50 @@
-//! Belt CLI — command-line interface for the agent communication belt.
+//! Ribbon CLI — command-line interface for the agent communication ribbon.
 
 use anyhow::{Context, Result};
-use belt::{
+use ribbon::{
     agent_statuses, append_event, find_previous_state, read_events, render, state_machine,
-    verify_events, verify_report, BeltConfig, BeltEvent, DiscoveredConfig, EventFilter, EventType,
+    verify_events, verify_report, RibbonConfig, RibbonEvent, DiscoveredConfig, EventFilter, EventType,
     GitRoots, RenderFormat, RenderOpts, ScopeConfig,
 };
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
 
-/// Belt — agent communication via structured ndjson event log.
+/// Ribbon — agent communication via structured ndjson event log.
 ///
 /// A file-first, git-versioned protocol for coordinating asynchronous agents.
 /// Compact ndjson for machines, rich markdown for humans.
 ///
 /// # Quick Start
 ///
-///   belt init --git-root myagent=.
-///   belt send working --agent myagent --task "add feature"
-///   belt send completed --agent myagent --task "add feature" --commit abc123
-///   belt status
-///   belt verify
+///   ribbon init --git-root myagent=.
+///   ribbon send working --agent myagent --task "add feature"
+///   ribbon send completed --agent myagent --task "add feature" --commit abc123
+///   ribbon status
+///   ribbon verify
 ///
 /// # How it works
 ///
 ///   Agents append structured events to an ndjson log (events.ndjson).
-///   Belt queries, renders, and verifies those events.
+///   Ribbon queries, renders, and verifies those events.
 ///   The log is git-versioned — every event is auditable.
-///   Configure git roots in .belt/config.toml to enable 'belt verify'.
+///   Configure git roots in .ribbon/config.toml to enable 'ribbon verify'.
 #[derive(Parser)]
-#[command(name = "belt", version, about, long_about = None, after_help = "Docs: https://github.com/allen-munsch/belt")]
+#[command(name = "ribbon", version, about, long_about = None, after_help = "Docs: https://github.com/allen-munsch/ribbon")]
 struct Cli {
     /// Path to the ndjson event log (overrides config)
-    #[arg(short = 'L', long, env = "BELT_LOG_PATH", global = true)]
+    #[arg(short = 'L', long, env = "RIBBON_LOG_PATH", global = true)]
     log: Option<PathBuf>,
 
-    /// Path to belt config file
-    #[arg(short = 'c', long, env = "BELT_CONFIG", global = true)]
+    /// Path to ribbon config file
+    #[arg(short = 'c', long, env = "RIBBON_CONFIG", global = true)]
     config: Option<PathBuf>,
 
-    /// Project root directory — where to search for .belt/config.toml
+    /// Project root directory — where to search for .ribbon/config.toml
     /// Default: walks up from current directory
     #[arg(
         short = 'r',
         long = "project-root",
-        env = "BELT_PROJECT_ROOT",
+        env = "RIBBON_PROJECT_ROOT",
         global = true
     )]
     project_root: Option<PathBuf>,
@@ -55,9 +55,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize belt in the current directory
+    /// Initialize ribbon in the current directory
     #[command(
-        long_about = "Initialize belt in the current directory.\n\nCreates .belt/config.toml with default settings.\nUse --git-root to pre-configure git verification paths so\n'belt verify' works immediately.\n\nExamples:\n  belt init\n  belt init --git-root frontend=.\n  belt init --git-root backend=../services/api --git-root infra=."
+        long_about = "Initialize ribbon in the current directory.\n\nCreates .ribbon/config.toml with default settings.\nUse --git-root to pre-configure git verification paths so\n'ribbon verify' works immediately.\n\nExamples:\n  ribbon init\n  ribbon init --git-root frontend=.\n  ribbon init --git-root backend=../services/api --git-root infra=."
     )]
     Init(InitArgs),
 
@@ -78,19 +78,19 @@ enum Commands {
 
     /// Verify commit hashes against git origins
     #[command(
-        long_about = "Verify that commit hashes in the event log exist on git origins.\n\nChecks every 'committed' and 'completed' event against the\nconfigured git remotes. Prevents agents from claiming work\nthat was never pushed.\n\nPREREQUISITES:\n  .belt/config.toml must have [git_roots] mapping agent names\n  to git repository paths. Create one with 'belt init', then\n  edit the file, or use 'belt init --git-root agent=path'.\n\nExit code: 0 if all commits verified, 1 if any are missing.\n\nExamples:\n  belt verify                  # Verify all agents\n  belt verify --agent mosaic   # Verify only one agent\n  belt verify --json           # Machine-readable output"
+        long_about = "Verify that commit hashes in the event log exist on git origins.\n\nChecks every 'committed' and 'completed' event against the\nconfigured git remotes. Prevents agents from claiming work\nthat was never pushed.\n\nPREREQUISITES:\n  .ribbon/config.toml must have [git_roots] mapping agent names\n  to git repository paths. Create one with 'ribbon init', then\n  edit the file, or use 'ribbon init --git-root agent=path'.\n\nExit code: 0 if all commits verified, 1 if any are missing.\n\nExamples:\n  ribbon verify                  # Verify all agents\n  ribbon verify --agent mosaic   # Verify only one agent\n  ribbon verify --json           # Machine-readable output"
     )]
     Verify(VerifyArgs),
 
     /// Discover your agent identity from scope.toml
     #[command(
-        long_about = "Discover your agent identity by matching your current directory\nagainst the scope paths defined in .belt/scope.toml.\n\nUse this when you spawn in a submodule and need to know:\n- Which agent you are\n- What paths you own\n- What services you manage\n- Who your peer agents are\n\nExamples:\n  belt whoami                  # From current directory\n  belt whoami --cwd submodules/mosaic\n  belt whoami --json"
+        long_about = "Discover your agent identity by matching your current directory\nagainst the scope paths defined in .ribbon/scope.toml.\n\nUse this when you spawn in a submodule and need to know:\n- Which agent you are\n- What paths you own\n- What services you manage\n- Who your peer agents are\n\nExamples:\n  ribbon whoami                  # From current directory\n  ribbon whoami --cwd submodules/mosaic\n  ribbon whoami --json"
     )]
     Whoami(WhoamiArgs),
 
     /// Show scope information for yourself or another agent
     #[command(
-        long_about = "Show what an agent owns: paths, services, git root, and peers.\nWithout --agent, acts like 'whoami' for your current directory.\n\nExamples:\n  belt scope                   # My scope (from cwd)\n  belt scope --agent mosaic    # Mosaic's scope\n  belt scope --agent weft --json"
+        long_about = "Show what an agent owns: paths, services, git root, and peers.\nWithout --agent, acts like 'whoami' for your current directory.\n\nExamples:\n  ribbon scope                   # My scope (from cwd)\n  ribbon scope --agent mosaic    # Mosaic's scope\n  ribbon scope --agent weft --json"
     )]
     Scope(ScopeArgs),
 
@@ -147,7 +147,7 @@ struct SendArgs {
     force: bool,
 }
 
-fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &BeltConfig) -> Result<()> {
+fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &RibbonConfig) -> Result<()> {
     // ── Agent name validation ──────────────────────────────────────────────
     // Check --agent against the config.agents whitelist (if non-empty).
     // This catches typos (yas-mcp vs yas_mcp), prevents orphan tasks filed
@@ -155,7 +155,7 @@ fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &BeltConfig) -> 
     if !config.agents.is_empty() && !config.agents.contains(&args.agent) {
         let valid = config.agents.iter().map(|a| a.as_str()).collect::<Vec<_>>().join(", ");
         anyhow::bail!(
-            "Unknown agent \"{}\".\n\n  Valid agents (from .belt/config.toml): {valid}\n\n  HINT: Did you mean one of these? Check your spelling.\n  HINT: Run `belt whoami` to auto-discover your agent name from your current directory.\n  HINT: To add a new agent, edit .belt/config.toml and add it to the agents list.\n  HINT: Use `belt status` to see all known agents and their current state.",
+            "Unknown agent \"{}\".\n\n  Valid agents (from .ribbon/config.toml): {valid}\n\n  HINT: Did you mean one of these? Check your spelling.\n  HINT: Run `ribbon whoami` to auto-discover your agent name from your current directory.\n  HINT: To add a new agent, edit .ribbon/config.toml and add it to the agents list.\n  HINT: Use `ribbon status` to see all known agents and their current state.",
             args.agent
         );
     }
@@ -169,7 +169,7 @@ fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &BeltConfig) -> 
         // Load existing events to find previous state for this agent+task
         let events = match read_events(log_path) {
             Ok(e) => e,
-            Err(belt::StoreError::NotFound(_)) => vec![],
+            Err(ribbon::StoreError::NotFound(_)) => vec![],
             Err(e) => return Err(e.into()),
         };
 
@@ -195,7 +195,7 @@ fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &BeltConfig) -> 
     let emoji = event_type.emoji();
     let label = event_type.label();
 
-    let mut event = BeltEvent::new(&args.agent, event_type);
+    let mut event = RibbonEvent::new(&args.agent, event_type);
 
     if let Some(task) = args.task {
         event = event.with_task(task);
@@ -233,11 +233,11 @@ struct StatusArgs {
 fn cmd_status(args: StatusArgs, log_path: &std::path::Path) -> Result<()> {
     let events = match read_events(log_path) {
         Ok(e) => e,
-        Err(belt::StoreError::NotFound(_)) => {
+        Err(ribbon::StoreError::NotFound(_)) => {
             if args.json {
                 println!("[]");
             } else {
-                println!("No events yet. Use 'belt send' to add events.");
+                println!("No events yet. Use 'ribbon send' to add events.");
             }
             return Ok(());
         }
@@ -360,7 +360,7 @@ fn cmd_query(args: QueryArgs, log_path: &std::path::Path) -> Result<()> {
     let results = filter.apply(events.iter());
 
     if args.json {
-        let events: Vec<&belt::BeltEvent> = results.into_iter().collect();
+        let events: Vec<&ribbon::RibbonEvent> = results.into_iter().collect();
         println!("{}", serde_json::to_string_pretty(&events)?);
     } else {
         for event in &results {
@@ -491,7 +491,7 @@ struct VerifyArgs {
     json: bool,
 }
 
-fn cmd_verify(args: VerifyArgs, log_path: &std::path::Path, config: &BeltConfig) -> Result<()> {
+fn cmd_verify(args: VerifyArgs, log_path: &std::path::Path, config: &RibbonConfig) -> Result<()> {
     let events = read_events(log_path)?;
 
     // Build git roots from config
@@ -553,7 +553,7 @@ struct ScopeArgs {
     json: bool,
 }
 
-fn cmd_whoami(args: WhoamiArgs, config: &BeltConfig) -> Result<()> {
+fn cmd_whoami(args: WhoamiArgs, config: &RibbonConfig) -> Result<()> {
     let cwd = args.cwd.unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     });
@@ -563,7 +563,7 @@ fn cmd_whoami(args: WhoamiArgs, config: &BeltConfig) -> Result<()> {
         Some((sc, pr)) => (sc, pr),
         None => {
             anyhow::bail!(
-                "No .belt/scope.toml found.\n\n  HINT: Create one at <project>/.belt/scope.toml to define agent scopes.\n  HINT: Use `belt init` first if you haven't set up belt yet."
+                "No .ribbon/scope.toml found.\n\n  HINT: Create one at <project>/.ribbon/scope.toml to define agent scopes.\n  HINT: Use `ribbon init` first if you haven't set up ribbon yet."
             );
         }
     };
@@ -607,9 +607,9 @@ fn cmd_whoami(args: WhoamiArgs, config: &BeltConfig) -> Result<()> {
             eprintln!("Could not determine agent identity for: {}", cwd.display());
             eprintln!();
             if scope_config.agents.is_empty() {
-                eprintln!("No agents defined in .belt/scope.toml.");
+                eprintln!("No agents defined in .ribbon/scope.toml.");
             } else {
-                eprintln!("Known agents in .belt/scope.toml:");
+                eprintln!("Known agents in .ribbon/scope.toml:");
                 for (name, entry) in &scope_config.agents {
                     eprintln!("  {name}: {}", entry.paths.join(", "));
                 }
@@ -624,12 +624,12 @@ fn cmd_whoami(args: WhoamiArgs, config: &BeltConfig) -> Result<()> {
     Ok(())
 }
 
-fn cmd_scope(args: ScopeArgs, config: &BeltConfig) -> Result<()> {
+fn cmd_scope(args: ScopeArgs, config: &RibbonConfig) -> Result<()> {
     let (scope_config, project_root) = {
         let search_root = args.cwd.as_deref();
         match ScopeConfig::discover_from(search_root)? {
             Some((sc, pr)) => (sc, pr),
-            None => anyhow::bail!("No .belt/scope.toml found. Create one to define agent scopes."),
+            None => anyhow::bail!("No .ribbon/scope.toml found. Create one to define agent scopes."),
         }
     };
 
@@ -697,7 +697,7 @@ fn cmd_scope(args: ScopeArgs, config: &BeltConfig) -> Result<()> {
             }
             None => {
                 anyhow::bail!(
-                    "Could not determine agent identity for: {}\n\n  HINT: Use --agent to specify an agent directly.\n  HINT: Run `belt whoami` for a detailed diagnostic.",
+                    "Could not determine agent identity for: {}\n\n  HINT: Use --agent to specify an agent directly.\n  HINT: Run `ribbon whoami` for a detailed diagnostic.",
                     cwd.display()
                 );
             }
@@ -775,7 +775,7 @@ fn cmd_unpack(args: UnpackArgs, log_path: &std::path::Path) -> Result<()> {
     }
 
     // Deserialize JSON array
-    let events: Vec<BeltEvent> = serde_json::from_slice(&decompressed)?;
+    let events: Vec<RibbonEvent> = serde_json::from_slice(&decompressed)?;
 
     // Write ndjson
     let ndjson: String = events
@@ -803,7 +803,7 @@ fn pack_handler(args: PackArgs, log_path: &std::path::Path) -> Result<()> {
 
 #[cfg(not(feature = "compress"))]
 fn pack_handler(_args: PackArgs, _log_path: &std::path::Path) -> Result<()> {
-    anyhow::bail!("Pack is not available. Rebuild with: cargo install belt --features compress");
+    anyhow::bail!("Pack is not available. Rebuild with: cargo install ribbon --features compress");
 }
 
 #[cfg(feature = "compress")]
@@ -813,7 +813,7 @@ fn unpack_handler(args: UnpackArgs, log_path: &std::path::Path) -> Result<()> {
 
 #[cfg(not(feature = "compress"))]
 fn unpack_handler(_args: UnpackArgs, _log_path: &std::path::Path) -> Result<()> {
-    anyhow::bail!("Unpack is not available. Rebuild with: cargo install belt --features compress");
+    anyhow::bail!("Unpack is not available. Rebuild with: cargo install ribbon --features compress");
 }
 
 #[cfg_attr(not(feature = "compress"), allow(dead_code))]
@@ -845,14 +845,14 @@ fn parse_git_root(s: &str) -> Result<(String, PathBuf), String> {
 }
 
 fn cmd_init(args: InitArgs) -> Result<()> {
-    let belt_dir = std::path::Path::new(".belt");
-    if belt_dir.exists() {
-        anyhow::bail!(".belt/ already exists. Remove it first to reinitialize.");
+    let ribbon_dir = std::path::Path::new(".ribbon");
+    if ribbon_dir.exists() {
+        anyhow::bail!(".ribbon/ already exists. Remove it first to reinitialize.");
     }
 
-    std::fs::create_dir_all(belt_dir)?;
+    std::fs::create_dir_all(ribbon_dir)?;
 
-    let mut config = BeltConfig::default();
+    let mut config = RibbonConfig::default();
     for (agent, path) in &args.git_roots {
         config.git_roots.insert(agent.clone(), path.clone());
         if !config.agents.contains(agent) {
@@ -861,13 +861,13 @@ fn cmd_init(args: InitArgs) -> Result<()> {
     }
 
     let toml_str = toml::to_string_pretty(&config)?;
-    let config_path = belt_dir.join("config.toml");
+    let config_path = ribbon_dir.join("config.toml");
     std::fs::write(&config_path, toml_str)?;
 
-    eprintln!("Initialized belt in .belt/");
+    eprintln!("Initialized ribbon in .ribbon/");
     eprintln!("  Config: {}", config_path.display());
     eprintln!(
-        "  Log:    {} (will be created on first 'belt send')",
+        "  Log:    {} (will be created on first 'ribbon send')",
         config.log_path.display()
     );
     if !args.git_roots.is_empty() {
@@ -875,14 +875,14 @@ fn cmd_init(args: InitArgs) -> Result<()> {
         for (agent, path) in &args.git_roots {
             eprintln!("    {agent} -> {}", path.display());
         }
-        eprintln!("  'belt verify' will work immediately for these agents.");
+        eprintln!("  'ribbon verify' will work immediately for these agents.");
     } else {
         eprintln!();
         eprintln!("Next steps:");
-        eprintln!("  1. Edit .belt/config.toml to add your agents and git roots");
-        eprintln!("     (or re-run: belt init --git-root myagent=.)");
-        eprintln!("  2. belt send working --agent my-agent --task 'first task'");
-        eprintln!("  3. belt status");
+        eprintln!("  1. Edit .ribbon/config.toml to add your agents and git roots");
+        eprintln!("     (or re-run: ribbon init --git-root myagent=.)");
+        eprintln!("  2. ribbon send working --agent my-agent --task 'first task'");
+        eprintln!("  3. ribbon status");
     }
 
     Ok(())
@@ -895,8 +895,8 @@ fn main() -> Result<()> {
 
     // Load config — searching from project_root or cwd
     let discovered: DiscoveredConfig = match cli.config {
-        Some(ref path) => BeltConfig::from_file(path)?,
-        None => BeltConfig::discover_from(cli.project_root.as_deref())?,
+        Some(ref path) => RibbonConfig::from_file(path)?,
+        None => RibbonConfig::discover_from(cli.project_root.as_deref())?,
     };
     let config = &discovered.config;
 
