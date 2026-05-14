@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use belt::{
     agent_statuses, append_event, read_events, render, verify_events, verify_report, BeltConfig,
     BeltEvent, DiscoveredConfig, EventFilter, EventType, GitRoots, RenderFormat, RenderOpts,
+    ScopeConfig,
 };
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
@@ -81,6 +82,18 @@ enum Commands {
     )]
     Verify(VerifyArgs),
 
+    /// Discover your agent identity from scope.toml
+    #[command(
+        long_about = "Discover your agent identity by matching your current directory\nagainst the scope paths defined in .belt/scope.toml.\n\nUse this when you spawn in a submodule and need to know:\n- Which agent you are\n- What paths you own\n- What services you manage\n- Who your peer agents are\n\nExamples:\n  belt whoami                  # From current directory\n  belt whoami --cwd submodules/mosaic\n  belt whoami --json"
+    )]
+    Whoami(WhoamiArgs),
+
+    /// Show scope information for yourself or another agent
+    #[command(
+        long_about = "Show what an agent owns: paths, services, git root, and peers.\nWithout --agent, acts like 'whoami' for your current directory.\n\nExamples:\n  belt scope                   # My scope (from cwd)\n  belt scope --agent mosaic    # Mosaic's scope\n  belt scope --agent weft --json"
+    )]
+    Scope(ScopeArgs),
+
     /// Pack the event log (Brotli compress)
     Pack(PackArgs),
 
@@ -129,7 +142,19 @@ struct SendArgs {
     blocking: bool,
 }
 
-fn cmd_send(args: SendArgs, log_path: &std::path::Path) -> Result<()> {
+fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &BeltConfig) -> Result<()> {
+    // ── Agent name validation ──────────────────────────────────────────────
+    // Check --agent against the config.agents whitelist (if non-empty).
+    // This catches typos (yas-mcp vs yas_mcp), prevents orphan tasks filed
+    // under non-existent agent names, and enforces naming conventions.
+    if !config.agents.is_empty() && !config.agents.contains(&args.agent) {
+        let valid = config.agents.iter().map(|a| a.as_str()).collect::<Vec<_>>().join(", ");
+        anyhow::bail!(
+            "Unknown agent \"{}\".\n\n  Valid agents (from .belt/config.toml): {valid}\n\n  HINT: Did you mean one of these? Check your spelling.\n  HINT: Run `belt whoami` to auto-discover your agent name from your current directory.\n  HINT: To add a new agent, edit .belt/config.toml and add it to the agents list.\n  HINT: Use `belt status` to see all known agents and their current state.",
+            args.agent
+        );
+    }
+
     let event_type: EventType = serde_json::from_str(&format!("\"{}\"", args.event)).context(
         "Invalid event type. Use: submitted, working, committed, completed, failed, note",
     )?;
@@ -449,6 +474,188 @@ fn cmd_verify(args: VerifyArgs, log_path: &std::path::Path, config: &BeltConfig)
     Ok(())
 }
 
+// ── whoami / scope ────────────────────────────────────────────────────
+
+#[derive(Parser)]
+struct WhoamiArgs {
+    /// Working directory to resolve (default: current directory)
+    #[arg(long, env = "PWD")]
+    cwd: Option<PathBuf>,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Parser)]
+struct ScopeArgs {
+    /// Agent to show scope for (default: auto-detect from cwd)
+    #[arg(short, long)]
+    agent: Option<String>,
+
+    /// Working directory (for auto-detection when --agent not given)
+    #[arg(long, env = "PWD")]
+    cwd: Option<PathBuf>,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
+}
+
+fn cmd_whoami(args: WhoamiArgs, config: &BeltConfig) -> Result<()> {
+    let cwd = args.cwd.unwrap_or_else(|| {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    });
+
+    // Discover scope.toml from project root
+    let (scope_config, project_root) = match ScopeConfig::discover_from(Some(&cwd))? {
+        Some((sc, pr)) => (sc, pr),
+        None => {
+            anyhow::bail!(
+                "No .belt/scope.toml found.\n\n  HINT: Create one at <project>/.belt/scope.toml to define agent scopes.\n  HINT: Use `belt init` first if you haven't set up belt yet."
+            );
+        }
+    };
+
+    match scope_config.whoami(&cwd, &project_root, config) {
+        Some(result) => {
+            if args.json {
+                println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                    "agent": result.agent,
+                    "paths": result.paths,
+                    "docker_services": result.docker_services,
+                    "git_root": result.git_root.as_ref().map(|p| p.display().to_string()),
+                    "project_root": result.project_root.display().to_string(),
+                    "cwd": cwd.display().to_string(),
+                    "peers": result.peers.iter().map(|(name, paths)| {
+                        serde_json::json!({"agent": name, "paths": paths})
+                    }).collect::<Vec<_>>(),
+                }))?);
+            } else {
+                println!("Agent:     {}", result.agent);
+                println!("Scope:     {}", result.paths.join(", "));
+                if !result.docker_services.is_empty() {
+                    println!("Services:  {}", result.docker_services.join(", "));
+                }
+                if let Some(ref git_root) = result.git_root {
+                    println!("Git root:  {}", git_root.display());
+                }
+                println!("Project:   {}", result.project_root.display());
+                println!("CWD:       {}", cwd.display());
+                if !result.peers.is_empty() {
+                    println!();
+                    println!("Peer agents:");
+                    for (name, paths) in &result.peers {
+                        println!("  {name}: {}", paths.join(", "));
+                    }
+                }
+            }
+        }
+        None => {
+            // No scope matched — list all known agents
+            eprintln!("Could not determine agent identity for: {}", cwd.display());
+            eprintln!();
+            if scope_config.agents.is_empty() {
+                eprintln!("No agents defined in .belt/scope.toml.");
+            } else {
+                eprintln!("Known agents in .belt/scope.toml:");
+                for (name, entry) in &scope_config.agents {
+                    eprintln!("  {name}: {}", entry.paths.join(", "));
+                }
+                eprintln!();
+                eprintln!("HINT: Are you in the right directory? Your cwd must be inside");
+                eprintln!("one of the scope paths listed above.");
+            }
+            std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_scope(args: ScopeArgs, config: &BeltConfig) -> Result<()> {
+    let (scope_config, project_root) = {
+        let search_root = args.cwd.as_deref();
+        match ScopeConfig::discover_from(search_root)? {
+            Some((sc, pr)) => (sc, pr),
+            None => anyhow::bail!("No .belt/scope.toml found. Create one to define agent scopes."),
+        }
+    };
+
+    // If --agent specified, show that agent's scope
+    if let Some(ref agent_name) = args.agent {
+        match scope_config.agents.get(agent_name) {
+            Some(entry) => {
+                let git_root = config.git_roots.get(agent_name).cloned();
+                let peers: Vec<_> = scope_config
+                    .agents
+                    .iter()
+                    .filter(|(a, _)| *a != agent_name)
+                    .collect();
+
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+                        "agent": agent_name,
+                        "paths": entry.paths,
+                        "docker_services": entry.docker_services,
+                        "git_root": git_root.as_ref().map(|p| p.display().to_string()),
+                        "project_root": project_root.display().to_string(),
+                        "peers": peers.iter().map(|(name, e)| {
+                            serde_json::json!({"agent": name, "paths": e.paths})
+                        }).collect::<Vec<_>>(),
+                    }))?);
+                } else {
+                    println!("Agent:     {agent_name}");
+                    println!("Scope:     {}", entry.paths.join(", "));
+                    if !entry.docker_services.is_empty() {
+                        println!("Services:  {}", entry.docker_services.join(", "));
+                    }
+                    if let Some(ref gr) = git_root {
+                        println!("Git root:  {}", gr.display());
+                    }
+                    println!("Project:   {}", project_root.display());
+                    if !peers.is_empty() {
+                        println!();
+                        println!("Peer agents:");
+                        for (name, entry) in &peers {
+                            println!("  {name}: {}", entry.paths.join(", "));
+                        }
+                    }
+                }
+            }
+            None => {
+                anyhow::bail!(
+                    "Unknown agent: {agent_name}.\n\n  Known agents: {}",
+                    scope_config.agents.keys().cloned().collect::<Vec<_>>().join(", ")
+                );
+            }
+        }
+    } else {
+        // No --agent: resolve from cwd (same as whoami)
+        let cwd = args.cwd.unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        });
+
+        match scope_config.whoami(&cwd, &project_root, config) {
+            Some(_) => {
+                let wargs = WhoamiArgs {
+                    cwd: Some(cwd),
+                    json: args.json,
+                };
+                return cmd_whoami(wargs, config);
+            }
+            None => {
+                anyhow::bail!(
+                    "Could not determine agent identity for: {}\n\n  HINT: Use --agent to specify an agent directly.\n  HINT: Run `belt whoami` for a detailed diagnostic.",
+                    cwd.display()
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 // ── pack / unpack ─────────────────────────────────────────────────────
 
 #[derive(Parser)]
@@ -650,12 +857,14 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Init(args) => cmd_init(args)?,
-        Commands::Send(args) => cmd_send(args, &log_path)?,
+        Commands::Send(args) => cmd_send(args, &log_path, config)?,
         Commands::Status(args) => cmd_status(args, &log_path)?,
         Commands::Query(args) => cmd_query(args, &log_path)?,
         Commands::Render(args) => cmd_render(args, &log_path)?,
         Commands::Watch(args) => cmd_watch(args, &log_path)?,
         Commands::Verify(args) => cmd_verify(args, &log_path, config)?,
+        Commands::Whoami(args) => cmd_whoami(args, config)?,
+        Commands::Scope(args) => cmd_scope(args, config)?,
         Commands::Pack(args) => pack_handler(args, &log_path)?,
         Commands::Unpack(args) => unpack_handler(args, &log_path)?,
     }
