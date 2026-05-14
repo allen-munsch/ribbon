@@ -6,3 +6,7 @@
 {"ts":"2026-05-14T22:54:02.857877704Z","agent":"ribbon","event":"working","task":"rebrand belt to ribbon"}
 {"ts":"2026-05-14T22:54:02.864585101Z","agent":"ribbon","event":"committed","task":"rebrand belt to ribbon","commit":"683ede37e9fa747ead01c875f45c634cb7d39bf8","msg":"All 25 tests pass, ribbon whoami returns ribbon agent"}
 {"ts":"2026-05-14T22:54:02.870391183Z","agent":"ribbon","event":"completed","task":"rebrand belt to ribbon","commit":"683ede37e9fa747ead01c875f45c634cb7d39bf8","msg":"Complete rebrand: ribbon init, ribbon send, ribbon status, ribbon whoami all working","tests":25,"failures":0}
+{"ts":"2026-05-14T23:07:14.297764011Z","agent":"ribbon","event":"submitted","task":"v0.3.1 release","priority":"HIGH"}
+{"ts":"2026-05-14T23:07:14.300256066Z","agent":"ribbon","event":"working","task":"v0.3.1 release"}
+{"ts":"2026-05-14T23:07:14.302693017Z","agent":"ribbon","event":"committed","task":"v0.3.1 release","commit":"6686c1e"}
+{"ts":"2026-05-14T23:07:14.305106516Z","agent":"ribbon","event":"completed","task":"v0.3.1 release","commit":"6686c1e","msg":"clippy clean, repo renamed to ribbon","tests":25,"failures":0}
