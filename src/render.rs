@@ -176,6 +176,25 @@ fn render_event_list_markdown(out: &mut String, events: &[&BeltEvent], opts: &Re
                     msg = event.msg.as_deref().unwrap_or("")
                 ));
             }
+            // Coordination states — render as labeled sections
+            _ => {
+                let label = event.event_type.label();
+                out.push_str(&format!(
+                    "### {emoji} [{ts}] {agent} — {label}\n",
+                    agent = event.agent
+                ));
+                if let Some(ref task) = event.task {
+                    out.push_str(&format!("**Task**: {task}\n"));
+                }
+                if let Some(ref msg) = event.msg {
+                    out.push_str(&format!("{msg}\n"));
+                }
+                if let Some(ref blocking) = event.blocking {
+                    if *blocking {
+                        out.push_str("**Blocking**: yes\n");
+                    }
+                }
+            }
         }
 
         // Extension fields
@@ -243,6 +262,13 @@ fn render_compact(events: &[&BeltEvent], opts: &RenderOpts) -> String {
             EventType::Completed => "DONE",
             EventType::Failed => "FAIL",
             EventType::Note => "NOTE",
+            EventType::Blocked => "BLKD",
+            EventType::Confused => "CNFS",
+            EventType::Sudo => "SUDO",
+            EventType::SudoGranted => "SOK",
+            EventType::SudoDenied => "SNO",
+            EventType::Hitl => "HITL",
+            EventType::HitlResolved => "HOK",
         };
 
         out.push_str(&format!(

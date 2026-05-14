@@ -177,7 +177,8 @@ impl EventFilter {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AgentStatus {
     pub agent: String,
-    /// Current state: "idle", "working", "committed", "completed", "failed".
+    /// Current state: "idle", "submitted", "working", "committed", "completed",
+    /// "failed", "blocked", "confused", "sudo_pending", "hitl_pending".
     pub state: String,
     /// Most recent commit hash if any.
     pub last_commit: Option<String>,
@@ -189,6 +190,14 @@ pub struct AgentStatus {
     pub has_active: bool,
     /// The active task description if working.
     pub active_task: Option<String>,
+    /// If blocked, what's the blocker (from msg).
+    pub blocked_by: Option<String>,
+    /// If confused, what's the question (from msg).
+    pub confused_about: Option<String>,
+    /// If sudo pending, what's requested (from msg).
+    pub sudo_request: Option<String>,
+    /// If HITL pending, what's needed (from msg).
+    pub hitl_request: Option<String>,
 }
 
 /// Compute current status for all agents found in the event log.
@@ -214,18 +223,17 @@ pub fn agent_statuses(events: &[BeltEvent]) -> Vec<AgentStatus> {
             let mut last_commit = None;
             let mut has_active = false;
             let mut active_task = None;
+            let mut blocked_by = None;
+            let mut confused_about = None;
+            let mut sudo_request = None;
+            let mut hitl_request = None;
 
             // Walk backwards to find current state
             for e in agent_events.iter().rev() {
-                match e.event_type {
+                match &e.event_type {
                     EventType::Submitted | EventType::Working | EventType::Committed => {
                         if state == "idle" {
-                            state = match e.event_type {
-                                EventType::Submitted => "submitted",
-                                EventType::Working => "working",
-                                EventType::Committed => "committed",
-                                _ => unreachable!(),
-                            };
+                            state = e.event_type.state_name();
                             has_active = true;
                             active_task = e.task.clone();
                         }
@@ -238,6 +246,44 @@ pub fn agent_statuses(events: &[BeltEvent]) -> Vec<AgentStatus> {
                     EventType::Failed => {
                         if state == "idle" {
                             state = "failed";
+                        }
+                    }
+                    EventType::Blocked => {
+                        if state == "idle" {
+                            state = "blocked";
+                            has_active = true;
+                            active_task = e.task.clone();
+                            blocked_by = e.msg.clone();
+                        }
+                    }
+                    EventType::Confused => {
+                        if state == "idle" {
+                            state = "confused";
+                            has_active = true;
+                            active_task = e.task.clone();
+                            confused_about = e.msg.clone();
+                        }
+                    }
+                    EventType::Sudo => {
+                        if state == "idle" {
+                            state = "sudo_pending";
+                            has_active = true;
+                            active_task = e.task.clone();
+                            sudo_request = e.msg.clone();
+                        }
+                    }
+                    EventType::Hitl => {
+                        if state == "idle" {
+                            state = "hitl_pending";
+                            has_active = true;
+                            active_task = e.task.clone();
+                            hitl_request = e.msg.clone();
+                        }
+                    }
+                    // Response events revert to previous state
+                    EventType::SudoGranted | EventType::SudoDenied | EventType::HitlResolved => {
+                        if state == "idle" {
+                            state = "idle";
                         }
                     }
                     EventType::Note => {}
@@ -258,12 +304,31 @@ pub fn agent_statuses(events: &[BeltEvent]) -> Vec<AgentStatus> {
                 failed_count,
                 has_active,
                 active_task,
+                blocked_by,
+                confused_about,
+                sudo_request,
+                hitl_request,
             }
         })
         .collect();
 
     statuses.sort_by(|a, b| a.agent.cmp(&b.agent));
     statuses
+}
+
+/// Find the previous non-note event for a specific agent+task combination.
+/// Returns the EventType of the last state-changing event, or None if this is a new task.
+pub fn find_previous_state(events: &[BeltEvent], agent: &str, task: &str) -> Option<EventType> {
+    // Walk backwards through events for this agent+task
+    for e in events.iter().rev() {
+        if e.agent == agent && e.task.as_deref() == Some(task) {
+            // Skip notes and responses (they don't change state)
+            if e.event_type != EventType::Note && !e.event_type.is_response() {
+                return Some(e.event_type.clone());
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

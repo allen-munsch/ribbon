@@ -2,9 +2,9 @@
 
 use anyhow::{Context, Result};
 use belt::{
-    agent_statuses, append_event, read_events, render, verify_events, verify_report, BeltConfig,
-    BeltEvent, DiscoveredConfig, EventFilter, EventType, GitRoots, RenderFormat, RenderOpts,
-    ScopeConfig,
+    agent_statuses, append_event, find_previous_state, read_events, render, state_machine,
+    verify_events, verify_report, BeltConfig, BeltEvent, DiscoveredConfig, EventFilter, EventType,
+    GitRoots, RenderFormat, RenderOpts, ScopeConfig,
 };
 use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
@@ -105,7 +105,8 @@ enum Commands {
 
 #[derive(Parser)]
 struct SendArgs {
-    /// Event type: submitted, working, committed, completed, failed, note
+    /// Event type: submitted, working, committed, completed, failed, note,
+    /// blocked, confused, sudo, sudo_granted, sudo_denied, hitl, hitl_resolved
     #[arg(value_name = "EVENT")]
     event: String,
 
@@ -140,6 +141,10 @@ struct SendArgs {
     /// Whether this task blocks downstream work
     #[arg(short = 'B', long, action = ArgAction::SetTrue, default_value = "false")]
     blocking: bool,
+
+    /// Force the event — bypass state machine validation (emergency use only)
+    #[arg(short = 'F', long, action = ArgAction::SetTrue, default_value = "false")]
+    force: bool,
 }
 
 fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &BeltConfig) -> Result<()> {
@@ -156,8 +161,37 @@ fn cmd_send(args: SendArgs, log_path: &std::path::Path, config: &BeltConfig) -> 
     }
 
     let event_type: EventType = serde_json::from_str(&format!("\"{}\"", args.event)).context(
-        "Invalid event type. Use: submitted, working, committed, completed, failed, note",
+        "Invalid event type. Use: submitted, working, committed, completed, failed, note, blocked, confused, sudo, sudo_granted, sudo_denied, hitl, hitl_resolved",
     )?;
+
+    // ── State machine validation ──────────────────────────────────────────
+    if !args.force && event_type != EventType::Note {
+        // Load existing events to find previous state for this agent+task
+        let events = match read_events(log_path) {
+            Ok(e) => e,
+            Err(belt::StoreError::NotFound(_)) => vec![],
+            Err(e) => return Err(e.into()),
+        };
+
+        let prev_state = if let Some(ref task) = args.task {
+            find_previous_state(&events, &args.agent, task)
+        } else {
+            None
+        };
+
+        let sm = state_machine();
+        match sm.validate(prev_state.as_ref(), &event_type) {
+            Ok(breadcrumb) => {
+                eprintln!("  {}", breadcrumb);
+            }
+            Err(hints) => {
+                anyhow::bail!("{hints}");
+            }
+        }
+    } else if args.force && event_type != EventType::Note {
+        eprintln!("  ⚠️  State machine bypassed (--force).");
+    }
+
     let emoji = event_type.emoji();
     let label = event_type.label();
 
@@ -236,10 +270,14 @@ fn cmd_status(args: StatusArgs, log_path: &std::path::Path) -> Result<()> {
                 "working" | "submitted" | "committed" => "🟡",
                 "completed" => "✅",
                 "failed" => "❌",
+                "blocked" => "🚫",
+                "confused" => "❓",
+                "sudo_pending" => "🔐",
+                "hitl_pending" => "👤",
                 _ => "⚪",
             };
             println!(
-                "{:<16} {} {:<10} {:<7} {:<6} {:<6} {}",
+                "{:<16} {} {:<12} {:<7} {:<6} {:<6} {}",
                 s.agent,
                 state_icon,
                 s.state,
@@ -248,6 +286,19 @@ fn cmd_status(args: StatusArgs, log_path: &std::path::Path) -> Result<()> {
                 s.failed_count,
                 s.active_task.as_deref().unwrap_or("-"),
             );
+            // Surface coordination details
+            if let Some(ref msg) = s.blocked_by {
+                println!("  BLOCKED: {}", msg);
+            }
+            if let Some(ref msg) = s.confused_about {
+                println!("  CONFUSED: {}", msg);
+            }
+            if let Some(ref msg) = s.sudo_request {
+                println!("  SUDO: {}", msg);
+            }
+            if let Some(ref msg) = s.hitl_request {
+                println!("  HITL: {}", msg);
+            }
         }
     }
     Ok(())

@@ -63,7 +63,10 @@ pub mod verify;
 
 // Re-exports for convenience
 pub use config::{BeltConfig, DiscoveredConfig, ScopeConfig, ScopeEntry, WhoamiResult};
-pub use event::{BeltEvent, EventType};
+pub use event::{state_machine, BeltEvent, EventType, StateMachine, Transition};
 pub use render::{render, RenderFormat, RenderOpts};
-pub use store::{agent_statuses, append_event, read_events, EventFilter, StoreError};
+pub use store::{
+    agent_statuses, append_event, find_previous_state, read_events, AgentStatus, EventFilter,
+    StoreError,
+};
 pub use verify::{verify_events, verify_report, GitRoots, VerifyResult};
