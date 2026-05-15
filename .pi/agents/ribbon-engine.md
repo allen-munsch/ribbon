@@ -6,6 +6,7 @@ ownedPaths:
   - /**
 tools: read, edit, write, grep, find, ls, bash
 model: deepseek-v4-pro
+aliases: ribbon
 ---
 
 # Ribbon Engine Agent
