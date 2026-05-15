@@ -10,3 +10,5 @@
 {"ts":"2026-05-14T23:07:14.300256066Z","agent":"ribbon","event":"working","task":"v0.3.1 release"}
 {"ts":"2026-05-14T23:07:14.302693017Z","agent":"ribbon","event":"committed","task":"v0.3.1 release","commit":"6686c1e"}
 {"ts":"2026-05-14T23:07:14.305106516Z","agent":"ribbon","event":"completed","task":"v0.3.1 release","commit":"6686c1e","msg":"clippy clean, repo renamed to ribbon","tests":25,"failures":0}
+{"ts":"2026-05-15T04:45:51.497987965Z","agent":"ribbon","event":"submitted","task":"fix 4 bugs: orphan DB, name mismatch, pi dispatch visibility, submodule CWD scoping","priority":"HIGH"}
+{"ts":"2026-05-15T04:46:06.436228661Z","agent":"ribbon","event":"working","task":"fix 4 bugs: orphan DB, name mismatch, pi dispatch visibility, submodule CWD scoping"}
